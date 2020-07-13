@@ -1,0 +1,19 @@
+{
+	"author"	:	"Cryotheum",
+	"title"		:	"[E2] Game Core",
+	"type"		:	"ServerContent",
+	"tags"		:	[ "fun" ],
+	"ignore"	:
+	[
+		"*.bat",
+		"*.gma",
+		"*.pdn",
+		"*.txt",
+		"*.zip",
+		".git*",
+		"license",
+		"readme.md",
+		".sublime-project",
+		".sublime-workspace"
+	]
+}
