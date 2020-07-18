@@ -32,6 +32,7 @@ local open_request_gui
 	local color_expression_excited = Color(158, 47, 47)
 	local color_game_highlight = Color(128, 255, 128)
 	local color_game_indicator = Color(192, 255, 192)
+	local color_ghost = Color(255, 255, 255, 127)
 
 --render parameters
 local block_form
@@ -82,6 +83,7 @@ local pop_up_w
 local scr_h
 local scr_w
 
+--constants
 local player_visibility_functions = {
 	nil,
 	function(ply)
@@ -145,10 +147,22 @@ local player_visibility_set_functions = {
 	end
 }
 
+--convars
+local wire_game_core_request_duration = CreateClientConVar("wire_game_core_request_duration", "30", true, false, "How long should a request last before expiring", 10, 60)
+
+--convar values
+local pop_up_duration = wire_game_core_request_duration:GetFloat()
+
 ----chached functions
 	local fl_cam_End2D = cam.End2D
 	local fl_cam_Start2D = cam.Start2D
+	local fl_render_Clear = render.Clear
 	local fl_render_ClearStencil = render.ClearStencil
+	local fl_render_CopyRenderTargetToTexture = render.CopyRenderTargetToTexture
+	local fl_render_DrawScreenQuad = render.DrawScreenQuad
+	local fl_render_GetRenderTarget = render.GetRenderTarget
+	local fl_render_SetMaterial = render.SetMaterial
+	local fl_render_SetRenderTarget = render.SetRenderTarget
 	local fl_render_SetStencilCompareFunction = render.SetStencilCompareFunction
 	local fl_render_SetStencilEnable = render.SetStencilEnable
 	local fl_render_SetStencilFailOperation = render.SetStencilFailOperation
@@ -158,11 +172,16 @@ local player_visibility_set_functions = {
 	local fl_render_SetStencilWriteMask = render.SetStencilWriteMask
 	local fl_render_SetStencilZFailOperation = render.SetStencilZFailOperation
 	local fl_surface_DrawRect = surface.DrawRect
+	local fl_surface_DrawTexturedRect = surface.DrawTexturedRect
 	local fl_surface_DrawTexturedRectRotated = surface.DrawTexturedRectRotated
 	local fl_surface_SetDrawColor = surface.SetDrawColor
+	local fl_surface_SetMaterial = surface.SetMaterial
 	local fl_surface_SetTexture = surface.SetTexture
 
 --local functions
+local function active_game() if game_master_index then return true end end
+local function active_game_inv() if game_master_index then return false end end
+
 local function add_block_checkbox(ply)
 	local check_box = vgui.Create("DCheckBoxLabel", block_form)
 	local master_index = ply:EntIndex()
@@ -173,17 +192,24 @@ local function add_block_checkbox(ply)
 	if game_blocks[master_index] then check_box:SetChecked(false)
 	else check_box:SetChecked(true) end
 	
-	check_box.OnChange = function(self, checked)
-		if IsValid(ply) then
-			for master_index, panel in pairs(game_blocks_check_boxes) do panel:SetEnabled(false) end
-			
-			net.Start("wire_game_core_block")
-			net.WriteUInt(master_index, 8)
-			net.WriteBool(not checked)
-			net.SendToServer()
-			
-			timer.Create("wire_game_core_block_form_timeout", 5, 1, generate_block_form)
-		else self:Remove() end
+	if ply == me then
+		check_box:SetEnabled(false)
+		check_box:SetMouseInputEnabled(false)
+		
+		check_box.OnChange = function(self, checked) check_box:SetChecked(true) end
+	else
+		check_box.OnChange = function(self, checked)
+			if IsValid(ply) then
+				for master_index, panel in pairs(game_blocks_check_boxes) do panel:SetEnabled(false) end
+				
+				net.Start("wire_game_core_block")
+				net.WriteUInt(master_index, 8)
+				net.WriteBool(not checked)
+				net.SendToServer()
+				
+				timer.Create("wire_game_core_block_form_timeout", 5, 1, generate_block_form)
+			else self:Remove() end
+		end
 	end
 	
 	game_blocks_check_boxes[master_index] = check_box
@@ -200,10 +226,8 @@ local function adjust_player_visibility(override)
 	if player_visibility_function then
 		local player_visibility_set_function = player_visibility_set_functions[value]
 		
-		print("hide", value, override)
-		
 		hook.Add("PrePlayerDraw", "wire_game_core", player_visibility_function)
-		hook.Add("HUDDrawTargetID", "wire_game_core", function() return true end)
+		hook.Add("HUDDrawTargetID", "wire_game_core", function() return true end) --todo: filter this
 		
 		for _, ply in pairs(player.GetAll()) do
 			if ply == me then continue end
@@ -212,8 +236,6 @@ local function adjust_player_visibility(override)
 		end
 	else
 		local player_visibility_set_function = player_visibility_set_functions[1]
-		
-		print("clear", value, override)
 		
 		hook.Remove("PrePlayerDraw", "wire_game_core")
 		hook.Remove("HUDDrawTargetID", "wire_game_core")
@@ -239,9 +261,10 @@ local function calc_cogs(start_rate, start_size, start_x, start_y, ideas, debugg
 	local current_angle = 0
 	local current_x = start_x
 	local current_y = start_y
+	local last_cog_index = 1
 	local last_size = start_size * cog_size
 	
-	local first_cog_index = table.insert(cogs, {
+	table.insert(cogs, {
 		offset = 0,
 		rate = start_rate,
 		size = start_size * cog_size,
@@ -260,8 +283,12 @@ local function calc_cogs(start_rate, start_size, start_x, start_y, ideas, debugg
 		current_x = current_x + math.cos(current_angle * math.pi / 180) * idea_radius
 		current_y = current_y + math.sin(current_angle * math.pi / 180) * idea_radius
 		
-		local current_cog = table.insert(cogs, {
-			offset = idea.offset,
+		local last_cog = cogs[last_cog_index]
+		local joint_angle = math.atan2(current_y, current_x) / math.pi * 180
+		local offset = 180 - ( ( last_cog.offset + joint_angle ) * ( idea.size / last_cog.size ) ) - joint_angle
+		
+		last_cog_index = table.insert(cogs, {
+			offset = offset,--idea.offset,
 			rate = rate,
 			size = calc_size,
 			x = current_x,
@@ -472,6 +499,8 @@ local function calc_vars()
 		if game_bar_open then game_bar:SetPos(game_bar_x, game_bar_y)
 		else game_bar:SetPos(game_bar_x, scr_h) end
 	end
+	
+	adjust_player_visibility()
 end
 
 local function draw_cogs(cogs)
@@ -487,18 +516,44 @@ local function forward_response(enum)
 	pop_up = nil
 	response_made = true
 	
+	print("Before test")
+	PrintTable(held_requests, 1)
+	
 	net.Start("wire_game_core_request")
 	net.WriteInt(enum, 8)
 	net.WriteUInt(held_requests[1][1], 8)
-	net.SendToServer()
 	
 	--remove queued requests if we accepted the request, or go to the next if we have one
-	if enum > 0 then held_requests = {}
-	else
-		table.remove(held_requests, 1)
+	if enum > 0 then
+		local send = {}
 		
-		if not table.IsEmpty(held_requests) then open_request_gui() end
+		if #held_requests > 1 then
+			net.WriteBool(true)
+			
+			for index, data in pairs(held_requests) do table.insert(send, data[1]) end
+			
+			table.remove(send, 1)
+			net.WriteTable(send)
+		else net.WriteBool(false) end
+		
+		net.SendToServer()
+		
+		held_requests = {} return nil
 	end
+	
+	net.WriteBool(false)
+	net.SendToServer()
+	
+	print("Before removal")
+	PrintTable(held_requests, 1)
+	
+	--remove the request, and open the next
+	table.remove(held_requests, 1)
+	
+	print("After removal")
+	PrintTable(held_requests, 1)
+	
+	if #held_requests > 0 then open_request_gui() end
 end
 
 generate_block_form = function()
@@ -520,6 +575,7 @@ local function generate_settings_form(form)
 	
 	settings_form:Clear()
 	settings_form:Help("Player visibility while in a game")
+	settings_form:SetName("WireGameCoreSettings")
 	
 	player_visibility_button = vgui.Create("DButton", settings_form)
 	
@@ -545,8 +601,8 @@ local function generate_settings_form(form)
 end
 
 open_request_gui = function()
-	held_requests[1][2] = CurTime() + 30
-	pop_up = vgui.Create("DFrame", nil, "GameCoreRequest")
+	held_requests[1][2] = CurTime() + pop_up_duration
+	pop_up = vgui.Create("DFrame", nil, "WireGameCoreRequest")
 	response_made = false
 	
 	local pop_up_layout = pop_up.PerformLayout
@@ -566,6 +622,9 @@ open_request_gui = function()
 	button_close:SetTextColor(color_white)
 	
 	button_close.DoClick = function(self)
+		print("Deny")
+		PrintTable(held_requests, 1)
+		
 		pop_up:Remove()
 		forward_response(-1)
 	end
@@ -588,7 +647,8 @@ open_request_gui = function()
 	
 	button_block.DoClick = function(self)
 		game_blocks[requester_index] = true
-		game_blocks_check_boxes[requester_index]:SetChecked(false)
+		
+		if block_form then game_blocks_check_boxes[requester_index]:SetChecked(false) end
 		
 		pop_up:Remove()
 		forward_response(-3)
@@ -636,6 +696,8 @@ open_request_gui = function()
 	panel_info:SetSize(pop_up_panel_info_w, pop_up_panel_info_h)
 	
 	panel_info.Paint = function(self, w, h)
+		if not held_requests or not held_requests[1] then self:Remove() end
+		
 		local time_left = math.ceil(held_requests[1][2] - CurTime())
 		
 		draw.DrawText(panel_info_text .. "\n\nThis invite expires in " .. time_left .. (time_left == 1 and " second." or " seconds."), "DermaDefault", w * 0.5, margin, color_white, TEXT_ALIGN_CENTER)
@@ -725,8 +787,15 @@ calc_vars()
 --concommand
 concommand.Add("wire_game_core_debug", function()
 	--this stuff is also being used for autoreload, but is safe to run anyways
-	local context_menu = vgui.GetWorldPanel():Find("ContextMenu")
 	local hooks = hook.GetTable()
+	local world_panel = vgui.GetWorldPanel()
+	
+	context_menu = world_panel:Find("ContextMenu")
+	
+	--generate_settings_form(world_panel:Find("WireGameCoreSettings"))
+	local test = world_panel:Find("WireGameCoreRequest")
+	
+	if test then test:Remove() end
 	
 	hooks.ContextMenuCreated.wire_game_core(context_menu)
 	hooks.InitPostEntity.wire_game_core()
@@ -782,16 +851,21 @@ concommand.Add("wire_game_core_debug_browser", function()
 	browser:MakePopup()
 end, nil, "Debug for game core, used to develop the game browser.")
 
---game events
-gameevent.Listen("player_connect")
+--cvars
+cvars.AddChangeCallback("wire_game_core_request_duration", function() pop_up_duration = wire_game_core_request_duration:GetFloat() end)
 
 --hooks
+hook.Add("CanArmDupe", "wire_game_core", active_game_inv)
+hook.Add("CanDrive", "wire_game_core", active_game_inv)
+hook.Add("CanProperty", "wire_game_core", active_game_inv)
+hook.Add("CanTool", "wire_game_core", active_game_inv)
+
 hook.Add("ContextMenuCreated", "wire_game_core", function(panel)
 	print("================= context menu create", panel)
 	
 	context_menu = panel
-	game_bar = vgui.Create("EditablePanel", GetHUDPanel(), "GameCoreGameBar")
-	--
+	game_bar = vgui.Create("EditablePanel", GetHUDPanel(), "WireGameCoreGameBar")
+	
 	game_bar:SetMouseInputEnabled(true)
 	game_bar:SetPos(game_bar_x, scr_h)
 	game_bar:SetSize(game_bar_w, game_bar_h)
@@ -870,16 +944,20 @@ hook.Add("InitPostEntity", "wire_game_core", function()
 	local distance_alpha_max_distance = 512
 	local distance_alpha_min_distance = 128
 	
+	local distance_alpha_diff = distance_alpha_max_distance - distance_alpha_min_distance
+	
 	hook.Add("PostDrawTranslucentRenderables", "wire_game_core", function(ply)
 		--we should instead drop this into the InitPostEntity hook but that'd stop autoreload for doing its bussiness
+		local view_entity = GetViewEntity()
+		
 		for index, ply in pairs(player.GetAll()) do
 			if game_masters[ply:EntIndex()] then
 				if IsValid(ply) and ply:Alive() then
 					--I know this is expensive, but how else can I get a linear fading alpha
-					local distance = ply:GetPos():Distance(me:GetPos())
+					local distance = ply:GetPos():Distance(view_entity:GetPos())
 					
 					if distance < distance_alpha_max_distance then
-						local distance_alpha = 0
+						local distance_alpha = math.Clamp((distance - distance_alpha_max_distance) / -distance_alpha_diff, 0, 1) * distance_alpha_max_alpha
 						local weapon = ply:GetActiveWeapon()
 						
 						color_game_highlight.a = distance_alpha
@@ -939,7 +1017,6 @@ hook.Add("OnContextMenuOpen", "wire_game_core", function()
 end)
 
 hook.Add("OnScreenSizeChanged", "wire_game_core", calc_vars)
-hook.Add("player_connect", "wire_game_core", function() timer.Simple(2, generate_block_form) end)
 hook.Add("PlayerNoClip", "wire_game_core", function(ply, desire) if game_masters[ply:EntIndex()] and desire then return false end end)
 hook.Add("PopulateToolMenu", "wire_game_core", function() spawnmenu.AddToolMenuOption("Utilities", "User", "WireGameCore", "E2 Game Core", "", "", generate_settings_form) end)
 
@@ -957,17 +1034,18 @@ hook.Add("Think", "wire_game_core", function()
 	
 	for index, data in ipairs(held_requests) do
 		--can't use table.remove or it skips over indices
+		--1: master index, 2: expiration time, 3: marked for removal
 		local master_index = data[1]
 		
-		if cur_time < data[2] then table.insert(new_requests, data)
+		if cur_time < data[2] and not data[3] then table.insert(new_requests, data)
 		elseif index == 1 and pop_up then
+			print("expire")
+			
 			pop_up:Remove()
 			forward_response(-2)
-		end
+		else print("time out") end
 	end
 	
-	--can we please have a reliable PlayerDisconnected hook?
-	--oh, and don't even think for a second that the game event is more reliable
 	--for master_index, panel in pairs(game_blocks_check_boxes) do if not IsValid(Entity(master_index)) then panel:Remove() end end
 	
 	held_requests = new_requests
@@ -985,6 +1063,17 @@ net.Receive("wire_game_core_block", function()
 		panel:SetEnabled(true)
 		
 		if game_blocks[master_index] then panel:SetChecked(false) end
+	end
+end)
+
+net.Receive("wire_game_core_block_update", function()
+	--we need this because player connect hooks and gameevents don't work consistently client side
+	if block_form then
+		local new_ply = net.ReadBool()
+		local ply_index = net.ReadUInt(8)
+		
+		if new_ply then add_block_checkbox(Entity(ply_index))
+		else game_blocks_check_boxes[ply_index]:Remove() end
 	end
 end)
 
@@ -1017,7 +1106,7 @@ net.Receive("wire_game_core_leave", function()
 		local weapon = me:GetWeapon(weapon_class)
 		
 		--it's fine to do SelectWeapon like this, I swear
-		timer.Simple(0.1, function() if IsValid(weapon) then input.SelectWeapon(weapon) end end)
+		--timer.Simple(0.1, function() if IsValid(weapon) then input.SelectWeapon(weapon) end end)
 		
 		game_master = nil
 		game_master_index = nil
@@ -1042,6 +1131,8 @@ net.Receive("wire_game_core_masters", function()
 		
 		ply:CollisionRulesChanged()
 	end
+	
+	PrintTable(game_masters, 1)
 end)
 
 net.Receive("wire_game_core_request", function()
@@ -1050,20 +1141,30 @@ net.Receive("wire_game_core_request", function()
 	if requests then
 		--let's make it curtime, because server lag also delays the respone
 		local cur_time = CurTime()
+		local held_request_count = #held_requests
 		
+		--refresh times
 		for index, data in pairs(held_requests) do
 			--don't re-add the entry, just renew the time
 			local master_index = data[1]
 			
 			if requests[master_index] then
-				held_requests[index][2] = cur_time
+				me:PrintMessage(HUD_PRINTTALK, "Refreshing: " .. master_index .. " at " .. index)
+				
+				held_requests[index][2] = cur_time + pop_up_duration
 				requests[master_index] = nil
 			end
 		end
 		
-		for master_index in pairs(requests) do table.insert(held_requests, {master_index, cur_time}) end
+		for master_index in pairs(requests) do
+			me:PrintMessage(HUD_PRINTTALK, "Updating " .. master_index .. " with " .. #held_requests .. " existing")
+			
+			held_requests[#held_requests + 1] = {master_index, cur_time + pop_up_duration}
+		end
 		
-		open_request_gui()
+		PrintTable(held_requests, 1)
+		
+		if held_request_count == 0 then open_request_gui() end
 	end
 end)
 
@@ -1078,18 +1179,19 @@ net.Receive("wire_game_core_sync", function()
 	
 	table.Merge(game_settings, received_settings)
 	
-	if game_master_index and received_settings[game_master_index] then
-		--when we receive an update about the game are in, do stuff
-		update_game_bar()
+	if held_requests[1] then
+		local cur_time = CurTime()
+		
+		--make all 
+		for index, data in ipairs(held_requests) do
+			--can't use table.remove or it skips over indices
+			if not game_settings[data[1]].active then held_requests[index][3] = true end
+		end
 	end
+	
+	if game_master_index and received_settings[game_master_index] then update_game_bar() end
 end)
 
 --auto reload, will be removed in the future
-if LocalPlayer() then RunConsoleCommand("wire_game_core_debug")
-else
-	--[[surface.CreateFont("GameCoreTitle", {
-		extended = true,
-		font = "Roboto",
-		size = 
-	})]]
-end
+if WireGameCore then RunConsoleCommand("wire_game_core_debug")
+else WireGameCore = true end
