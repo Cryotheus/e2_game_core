@@ -1,3 +1,5 @@
+--at this point I am thinking of grouping some less commonly used ones together and sending a 2 bit uint to identify what its purpose is
+--this would cut down on the amount of network strings I am using, but increase code complexity a little bit
 util.AddNetworkString("wire_game_core_block")
 util.AddNetworkString("wire_game_core_block_update")
 util.AddNetworkString("wire_game_core_join")
@@ -7,17 +9,20 @@ util.AddNetworkString("wire_game_core_request")
 util.AddNetworkString("wire_game_core_sounds")
 util.AddNetworkString("wire_game_core_sync")
 
+resource.AddFile("materials/icon64/game_core_browser_icon.png") --used for the context menu icon, first version
+resource.AddFile("materials/vgui/wire_game_core/icon.png") --used for the icon in the game browsers
+
 --misc. ungrouped
 --tables
 local entity_meta = FindMetaTable("Entity")
-local game_request_delays = {}	--y to delay requests to certain players;		k: master index,		v: table where (k: recipient index, v: cur_time when they can send another request to the player)
 local game_blocks = {}			--y for players who blocked others;				k: player index,		v: table where (k: master index, v: true)
 local game_camera_counts = {}	--y for cameras the master makes;				k: master index,		v: number
-local game_cameras = {}			--y for cameras the master makes;				k: master index,		v: entity
+local game_cameras = {}			--y for cameras the master makes;				k: master index,		v: table where
 local game_constructor = {}		--y for getting the game chip and master;		k: chip/master index,	v: master/chip index
 local game_damage_dealt = {}	--y stores dealt damage multipliers;			k: player index,		v: multiplier
 local game_damage_taken = {}	--y stores dealt damage multipliers;			k: player index,		v: multiplier
 local game_masters = {}			--y used to fetch the player's game master;		k: player index,		v: master index
+local game_request_delays = {}	--y to delay requests to certain players;		k: master index,		v: table where (k: recipient index, v: cur_time when they can send another request to the player)
 local game_respawns = {}		--y used to store the player's respawn delay;	k: player index,		v: time when the player can respawn
 local game_settings = {}		--y stores the settings for each players game;	k: master index,		v: table where (k: setting name, v: setting value)
 local ply_cameras = {}			--y stores the cameras each player is viewing;	k: player index,		v: camera index
@@ -50,8 +55,8 @@ local ply_settings = {}			--y for restoring the player;					k: player index,		v:
 ----convars
 	local convar_limit_settings = {FCVAR_ARCHIVE, FCVAR_NOTIFY}
 	
-	local wire_game_core_max_camera_lerp = CreateConVar("wire_game_core_max_camera_lerp", "3600", convar_limit_settings, "The longest a camera lerp can be, in seconds.", 0, 36000)
 	local wire_game_core_max_armor = CreateConVar("wire_game_core_max_armor", "32768", convar_limit_settings, "The maximum amount of armor a player may be given.", 100, 32768)
+	local wire_game_core_max_camera_lerp = CreateConVar("wire_game_core_max_camera_lerp", "3600", convar_limit_settings, "The longest a camera lerp can be, in seconds.", 0, 36000)
 	local wire_game_core_max_cameras = CreateConVar("wire_game_core_max_cameras", "20", convar_limit_settings, "The maximum amount of point cameras a player may spawn.", 100, 0)
 	local wire_game_core_max_damage_multiplier = CreateConVar("wire_game_core_max_damage_multiplier", "1000", convar_limit_settings, "The maximum amount of armor a player may be given.", 2, 200000)
 	local wire_game_core_max_force = CreateConVar("wire_game_core_max_force", "3500", convar_limit_settings, "The maximum amount of force that may be applied to a player.", 100, 3500)
@@ -76,18 +81,30 @@ local ply_settings = {}			--y for restoring the player;					k: player index,		v:
 	local queue_game_sounds_max = wire_game_core_max_sounds:GetInt()
 
 ----cached functions
-	local fl_Entity_SetGravity = entity_meta.SetGravityX_GameCore or entity_meta.SetGravity
-	local fl_Entity_SetHealth = entity_meta.SetHealthX_GameCore or entity_meta.SetHealth
-	local fl_Entity_SetMaxHealth = entity_meta.SetMaxHealthX_GameCore or entity_meta.SetMaxHealth
-	local fl_Player_GodDisable = ply_meta.GodDisableX_GameCore or ply_meta.GodDisable
-	local fl_Player_GodEnable = ply_meta.GodEnableX_GameCore or ply_meta.GodEnable
-	local fl_Player_SetArmor = ply_meta.SetArmorX_GameCore or ply_meta.SetArmor
-	local fl_Player_SetCrouchedWalkSpeed = ply_meta.SetCrouchedWalkSpeedX_GameCore or ply_meta.SetCrouchedWalkSpeed
-	local fl_Player_SetLadderClimbSpeed = ply_meta.SetLadderClimbSpeedX_GameCore or ply_meta.SetLadderClimbSpeed
-	local fl_Player_SetRunSpeed = ply_meta.SetRunSpeedX_GameCore or ply_meta.SetRunSpeed
-	local fl_Player_SetSlowWalkSpeed = ply_meta.SetSlowWalkSpeedX_GameCore or ply_meta.SetSlowWalkSpeed
-	local fl_Player_SetWalkSpeed = ply_meta.SetWalkSpeedX_GameCore or ply_meta.SetWalkSpeed
+	local fl_Entity_SetGravity --if they are only declared here, you can find them detoured in the post local function setup
+	local fl_Entity_SetHealth
+	local fl_Entity_SetMaxHealth
+	local fl_Entity_SetMoveType
+	local fl_Entity_SetPos
+	local fl_GAMEMODE_PlayerDeathThink = GAMEMODE.PlayerDeathThinkX_GameCore or GAMEMODE.PlayerDeathThink
+	local fl_Player_GodDisable
+	local fl_Player_GodEnable
+	local fl_Player_SetArmor
+	local fl_Player_SetCrouchedWalkSpeed
+	local fl_Player_SetFOV
+	local fl_Player_SetJumpPower
+	local fl_Player_SetLadderClimbSpeed
+	local fl_Player_SetRunSpeed
+	local fl_Player_SetSlowWalkSpeed
+	local fl_Player_SetViewEntity = ply_meta.SetViewEntityX_GameCore or ply_meta.SetViewEntity
+	local fl_Player_SetWalkSpeed
 	local fl_math_Clamp = math.Clamp
+	
+	local fl_Player_RemoveAllAmmo
+	local fl_Player_SetAmmo
+	local fl_Player_StripAmmo
+	local fl_Player_StripWeapon
+	local fl_Player_StripWeapons
 
 ----compatibility and bonus features from other addons
 	local hooks = hook.GetTable()
@@ -127,7 +144,6 @@ local game_constants = { --in e2, these are all prefixed with _GAME, meaning REQ
 }
 
 local game_default_settings = {
-	active = false,
 	block_suicide = false,
 	defaults = {
 		armor = 0,
@@ -137,6 +153,7 @@ local game_default_settings = {
 		flashlight = false,
 		gravity = 1,
 		health = 100,
+		jump_power = 200,
 		ladder_speed = 200,
 		max_health = 100,
 		push = push_mod_hook and true or false,
@@ -149,50 +166,36 @@ local game_default_settings = {
 	block_fall_damage = false,
 	open = false,
 	plys = {},
+	requests = {},
 	title = "Unnamed Game"
 }
 
 --game_respawns
 local game_respawn_functions = {
-	function(ply)
-		--RESPAWN_INSTANT
-		ply:Spawn()
-		
-		return true
-	end,
-	function(ply)
-		--RESPAWN_DELAYED
+	function(ply) ply:Spawn() end, --RESPAWN_INSTANT
+	function(ply) --RESPAWN_DELAYED
 		local ply_index = ply:EntIndex()
 		local respawn_time = game_respawns[ply_index] or 0
 		--finish up the game_respawns table cleanup
 		if CurTime() > respawn_time then
 			ply:Spawn()
 			
-			game_respawns[ply_index] = nil
+			print("respawned em")
 			
-			return true
+			game_respawns[ply_index] = nil
 		end
-		
-		return false
 	end,
-	function(ply)
-		--RESPAWN_NEVER
-		return false
-	end,
-	function(ply)
-		--RESPAWN_SPECTATOR
-		return false
-	end
+	function(ply) end, --RESPAWN_NEVER
+	function(ply) end --RESPAWN_SPECTATOR
 }
 
 local game_synced_settings = { --contains the settings that are sent to clients; k: setting name, v: true
-	active = true,
 	open = true,
 	plys = true,
 	title = true
 }
 
-local map_max_bounds = 32768 + 512
+local map_max_bounds = 32768 + 512 --512 as a buffer
 local map_min_bounds = -map_max_bounds
 
 ----globals
@@ -201,13 +204,19 @@ local map_min_bounds = -map_max_bounds
 	entity_meta.SetGravityX_GameCore = fl_Entity_SetGravity
 	entity_meta.SetHealthX_GameCore = fl_Entity_SetHealth
 	entity_meta.SetMaxHealthX_GameCore = fl_Entity_SetMaxHealth
+	entity_meta.SetMoveTypeX_GameCore = fl_Entity_SetMoveType
+	entity_meta.SetPosX_GameCore = fl_Entity_SetPos
+	GAMEMODE.PlayerDeathThinkX_GameCore = fl_GAMEMODE_PlayerDeathThink
 	ply_meta.GodDisableX_GameCore = fl_Player_GodDisable
 	ply_meta.GodEnableX_GameCore = fl_Player_GodEnable
 	ply_meta.SetArmorX_GameCore = fl_Player_SetArmor
 	ply_meta.SetCrouchedWalkSpeedX_GameCore = fl_Player_SetCrouchedWalkSpeed
+	ply_meta.SetFOVX_GameCore = fl_Player_SetFOV
+	ply_meta.SetJumpPowerX_GameCore = fl_Player_SetJumpPower
 	ply_meta.SetLadderClimbSpeedX_GameCore = fl_Player_SetLadderClimbSpeed
 	ply_meta.SetRunSpeedX_GameCore = fl_Player_SetRunSpeed
 	ply_meta.SetSlowWalkSpeedX_GameCore = fl_Player_SetSlowWalkSpeed
+	ply_meta.SetViewEntityX_GameCore = fl_Player_SetViewEntity
 	ply_meta.SetWalkSpeedX_GameCore = fl_Player_SetWalkSpeed
 
 --local pre functions
@@ -250,7 +259,12 @@ local function camera_create(master_index, camera_index, position, angles, force
 	if game_cameras[master_index] and game_cameras[master_index][camera_index] then
 		camera = game_cameras[master_index][camera_index]
 		existed = true
-	else camera = ents.Create("gmod_wire_game_core_camera") end
+	else
+		camera = ents.Create("gmod_wire_game_core_camera")
+		
+		--this starts the think hook
+		camera:Spawn()
+	end
 	
 	--create the table of cameras if we haven't already
 	if not game_cameras[master_index] then game_cameras[master_index] = {} end
@@ -268,8 +282,11 @@ local function camera_create(master_index, camera_index, position, angles, force
 		camera:CallOnRemove("wire_game_core", function()
 			for ply_index in pairs(camera.Viewers) do if ply_cameras[ply_index] == camera_index then camera_disable(Entity(ply_index), ply_index, master_index) end end
 			
-			game_cameras[master_index][camera_index] = nil
-			game_camera_counts[master_index] = game_camera_counts[master_index] - 1
+			if table.Count(game_cameras[master_index]) == 1 then game_cameras[master_index] = nil
+			else game_cameras[master_index][camera_index] = nil end
+			
+			if game_camera_counts[master_index] == 1 then game_camera_counts[master_index] = nil
+			else game_camera_counts[master_index] = game_camera_counts[master_index] - 1 end
 			
 			print("Removing a camera")
 		end)
@@ -287,9 +304,9 @@ local function camera_disable(ply, ply_index, master_index)
 	--return the player's view and remove them from the camera tables
 	local camera = game_cameras[master_index][ply_cameras[ply_index]]
 	
-	--set their view	
-	ply:SetFOV(0)
-	ply:SetViewEntity()
+	--set their view
+	fl_Player_SetFOV(ply, 0)
+	fl_Player_SetViewEntity(ply)
 	
 	--update tables
 	camera.Viewers[ply_index] = nil
@@ -297,6 +314,9 @@ local function camera_disable(ply, ply_index, master_index)
 end
 
 local function camera_enable(ply, ply_index, master_index, camera_index)
+	print("camera_enable trace")
+	debug.Trace()
+	
 	--set the player's view to the camera by the player, their index, the master index, and camera index
 	local camera = game_cameras[master_index][camera_index]
 	
@@ -304,8 +324,8 @@ local function camera_enable(ply, ply_index, master_index, camera_index)
 	if ply_cameras[ply_index] then camera_disable(ply, ply_index, master_index) end
 	
 	--set their view
-	ply:SetFOV(camera.FOV)
-	ply:SetViewEntity(camera)
+	fl_Player_SetFOV(ply, camera.FOV)
+	fl_Player_SetViewEntity(ply, camera)
 	
 	--update tables
 	camera.Viewers[ply_index] = true
@@ -352,20 +372,76 @@ local function construct_game_settings(master_index)
 	game_settings[master_index].title = master_name .. (master_name[string.len(master_name)] == "s" and "' Game" or "'s Game")
 end
 
+local function create_function_detour(function_table, function_name, field, force_value)
+	local existing_function = function_table[function_name .. "X_GameCore"] or function_table[function_name]
+	
+	--give access to the function that doesn't have a detour
+	--also used to keep autoreload from stacking them
+	function_table[function_name .. "X_GameCore"] = existing_function
+	
+	--detour the function to our specifications
+	if field then
+		--we have a field that we need to update
+		if force_value then
+			--set the field to the force_value when force_value is specified
+			function_table[function_name] = function(self, ...)
+				local ply_index = self:EntIndex()
+				
+				if game_masters[ply_index] then ply_settings[ply_index][field] = force_value
+				else existing_function(self, ...) end
+			end
+		else
+			--take the value from the function and set the field to it
+			function_table[function_name] = function(self, interest, ...)
+				local ply_index = self:EntIndex()
+				
+				if game_masters[ply_index] then ply_settings[ply_index][field] = interest
+				else existing_function(self, interest, ...) end
+			end
+		end
+	else
+		--we don't have a value to provide to ply_settings, just block it if they are in game
+		function_table[function_name] = function(self, ...) if not game_masters[self:EntIndex()] then existing_function(self, ...) end end
+	end
+	
+	return existing_function
+end
+
+local function create_function_header(function_table, function_name, header)
+	local existing_function = function_table[function_name .. "X_GameCore"] or function_table[function_name]
+	
+	--give access to the function that doesn't have a detour
+	--also used to keep autoreload from stacking them
+	function_table[function_name .. "X_GameCore"] = existing_function
+	
+	function_table[function_name] = function(self, ...)
+		local ply_index = self:EntIndex()
+		
+		if game_masters[ply_index] then header(self, ply_index, ...)
+		else existing_function(self, ...) end
+	end
+	
+	return existing_function
+end
+
 local function game_acclimate(ply, ply_index, defaults)
 	--situate the player to the games defaults, used when the player spawns and when they join
-	ply:RemoveAllItems()
+	fl_Player_RemoveAllAmmo(ply)
 	
 	fl_Entity_SetGravity(ply, defaults.gravity)
 	fl_Entity_SetHealth(ply, defaults.health)
 	fl_Entity_SetMaxHealth(ply, defaults.max_health)
-	fl_Player_GodDisable(ply)
 	fl_Player_SetArmor(ply, defaults.armor)
 	fl_Player_SetCrouchedWalkSpeed(ply, defaults.crouch_speed)
+	fl_Player_SetJumpPower(ply, defaults.jump_power)
 	fl_Player_SetLadderClimbSpeed(ply, defaults.ladder_speed)
 	fl_Player_SetRunSpeed(ply, defaults.run_speed)
 	fl_Player_SetSlowWalkSpeed(ply, defaults.stroll_speed)
 	fl_Player_SetWalkSpeed(ply, defaults.walk_speed)
+	fl_Player_SetViewEntity(ply)
+	
+	--setting for this later, k?
+	fl_Player_GodDisable(ply)
 	
 	game_damage_dealt[ply_index] = defaults.damage_dealt
 	game_damage_taken[ply_index] = defaults.damage_taken
@@ -378,6 +454,7 @@ local function game_add(ply, master_index)
 	--add a player to a game
 	local ply_index = ply:EntIndex()
 	local ply_weapon = ply:GetActiveWeapon()
+	local ply_weapon_class = IsValid(ply_weapon) and ply_weapon:GetClass() or nil
 	local settings = game_settings[master_index]
 	local settings_defaults = settings.defaults
 	
@@ -394,17 +471,17 @@ local function game_add(ply, master_index)
 		armor = ply:Armor(),
 		arsenal = {},
 		crouch_speed = ply:GetCrouchedWalkSpeed(),
-		--crouched = ply:Crouching(), --I don't know how to make them crouched!
+		--crouched = ply:Crouching(), --I don't know how to make them crouched
 		deaths = ply:Deaths(),
 		flashlight = ply:FlashlightIsOn(),
 		frags = ply:Frags(),
 		god = ply:HasGodMode(),
 		gravity = ply:GetGravity(),
 		health = ply:Health(),
+		jump_power = ply:GetJumpPower(),
 		ladder_speed = ply:GetLadderClimbSpeed(),
 		max_health = ply:GetMaxHealth(),
-		movetype = ply:GetMoveType(),
-		noclip = ply:GetMoveType() == MOVETYPE_NOCLIP,
+		move_type = ply:GetMoveType(),
 		position = ply:GetPos(),
 		run_speed = ply:GetRunSpeed(),
 		stroll_speed = ply:GetSlowWalkSpeed(),
@@ -420,12 +497,10 @@ local function game_add(ply, master_index)
 	
 	ply:SetDeaths(0)
 	ply:SetFrags(0)
-	
-	fl_Player_GodDisable(ply)
+	ply:SetMoveType(MOVETYPE_WALK)
 	
 	if pac_present then ply:ConCommand("pac_clear_parts") end
 	if ply:InVehicle() then ply:ExitVehicle() end
-	if ply_settings[ply_index].noclip then ply:SetMoveType(MOVETYPE_WALK) end
 	
 	--sets the player to default game settings
 	game_acclimate(ply, ply_index, settings_defaults)
@@ -436,7 +511,10 @@ local function game_add(ply, master_index)
 	net.Start("wire_game_core_join")
 	net.WriteUInt(master_index, 8)
 	
-	if IsValid(ply_weapon) then net.WriteString(ply_weapon:GetClass()) end
+	if ply_weapon_class then
+		net.WriteBool(true)
+		net.WriteString(ply_weapon_class)
+	else net.WriteBool(false) end
 	
 	net.Send(ply)
 end
@@ -465,13 +543,21 @@ local function game_evaluator_player_only(self, ply)
 	return false, nil, chip_index, master_index
 end
 
-local function game_function_detour(ply_index, field, value)
-	--macro to detour functions and update player settings if the function is blocked
-	if game_masters[ply_index] then
-		ply_settings[ply_index][field] = value
-		
-		return false
-	else return true end
+local function game_function_execute(entity, context_fields)
+	--macro execute the chip with the given context values
+	--a 0 timer keeps the chip from executing with the same context provided by other runOn functions, like runOnChat
+	timer.Simple(0, function()
+		--did the entity just kill a player during a runOnLast execution? if so it may not be valid, so we check again
+		if IsValid(entity) then
+			--set the values in context
+			for field, value in pairs(context_fields) do entity.context.data[field] = value end
+			
+			entity:Execute()
+			
+			--and remove them
+			for field, value in pairs(context_fields) do entity.context.data[field] = nil end
+		end
+	end)
 end
 
 local function game_function_players(master_index, func)
@@ -496,11 +582,10 @@ local function game_remove(ply, enum)
 	--if there is no enum, don't execute the chip
 	--also, we call this so early so the player can do something before the player leaves
 	if enum and run_game_leave[entity] then
-		entity.context.data.game_leave_run = enum
-		entity.context.data.game_leave_run_ply = ply
-		entity:Execute()
-		entity.context.data.game_leave_run = nil
-		entity.context.data.game_leave_run_ply = nil
+		game_function_execute(entity, {
+			game_leave_run = enum,
+			game_leave_run_ply = ply
+		})
 	end
 	
 	add_masters_sync_request(ply_index)
@@ -536,32 +621,30 @@ local function game_remove(ply, enum)
 		if ply_cameras[ply_index] then camera_disable(ply, ply_index, master_index) end
 	end
 	
-	--for the cameras, I still have to delete them when the game closes
-	
 	ply:ExitVehicle()
 	ply:SetDeaths(settings.deaths)
 	ply:SetEyeAngles(settings.angle)
 	ply:SetFrags(settings.frags)
-	ply:SetMoveType(settings.movetype)
-	ply:SetPos(settings.position)
 	ply:SetSuppressPickupNotices(false)
 	ply:SetVelocity(settings.velocity)
-	
-	print("gravity setting: " .. settings.gravity)
 	
 	fl_Entity_SetGravity(ply, settings.gravity)
 	fl_Entity_SetHealth(ply, settings.health)
 	fl_Entity_SetMaxHealth(ply, settings.max_health)
+	fl_Entity_SetMoveType(ply, settings.move_type)
+	fl_Entity_SetPos(ply, settings.position)
 	fl_Player_SetArmor(ply, settings.armor)
 	fl_Player_SetCrouchedWalkSpeed(ply, settings.crouch_speed)
+	fl_Player_SetJumpPower(ply, settings.jump_power)
 	fl_Player_SetLadderClimbSpeed(ply, settings.ladder_speed)
 	fl_Player_SetRunSpeed(ply, settings.run_speed)
 	fl_Player_SetSlowWalkSpeed(ply, settings.stroll_speed)
 	fl_Player_SetWalkSpeed(ply, settings.walk_speed)
 	
-	if pac_present then ply:ConCommand("pac_wear_parts") end
+	--if pac_present then ply:ConCommand("pac_wear_parts") end --ahhhhhhhhhhhhhhhhhhhhhhhhh
 	if ply:FlashlightIsOn() ~= settings.flashlight then ply:Flashlight(settings.flashlight) end
 	if settings.god then fl_Player_GodEnable(ply) else fl_Player_GodDisable(ply) end
+	if IsValid(settings.view_entity) then fl_Player_SetViewEntity(ply, settings.view_entity) end
 	
 	--remove the settings
 	ply_settings[ply_index] = nil
@@ -616,18 +699,63 @@ E2Lib.RegisterExtension("game", true,
 
 for enum, value in pairs(game_constants) do E2Lib.registerConstant("_GAME" .. enum, value) end
 
---global functions
-function entity_meta:SetGravity(gravityMultiplier) if game_function_detour(self:EntIndex(), "gravity", gravityMultiplier) then fl_Entity_SetGravity(self, gravityMultiplier) end end
-function entity_meta:SetHealth(newHealth) if game_function_detour(self:EntIndex(), "health", newHealth) then fl_Entity_SetHealth(self, newHealth) end end
-function entity_meta:SetMaxHealth(maxHealth) if game_function_detour(self:EntIndex(), "max_health", maxHealth) then fl_Entity_SetMaxHealth(self, maxHealth) end end
-function ply_meta:GodDisable() if game_function_detour(self:EntIndex(), "god", false) then fl_Player_GodDisable(self) end end
-function ply_meta:GodEnable() if game_function_detour(self:EntIndex(), "god", true) then fl_Player_GodEnable(self) end end
-function ply_meta:SetArmor(amount) if game_function_detour(self:EntIndex(), "armor", amount) then fl_Player_SetArmor(self, amount) end end
-function ply_meta:SetCrouchedWalkSpeed(speed) if game_function_detour(self:EntIndex(), "crouch_speed", speed) then fl_Player_SetCrouchedWalkSpeed(self, speed) end end
-function ply_meta:SetLadderClimbSpeed(speed) if game_function_detour(self:EntIndex(), "ladder_speed", speed) then fl_Player_SetLadderClimbSpeed(self, speed) end end
-function ply_meta:SetRunSpeed(runSpeed) if game_function_detour(self:EntIndex(), "run_speed", runSpeed) then fl_Player_SetRunSpeed(self, runSpeed) end end
-function ply_meta:SetSlowWalkSpeed(speed) if game_function_detour(self:EntIndex(), "stroll_speed", speed) then fl_Player_SetSlowWalkSpeed(self, speed) end end
-function ply_meta:SetWalkSpeed(walkSpeed) if game_function_detour(self:EntIndex(), "walk_speed", walkSpeed) then fl_Player_SetWalkSpeed(self, walkSpeed) end end
+fl_Entity_SetGravity = create_function_detour(entity_meta, "SetGravity", "gravity")
+fl_Entity_SetHealth = create_function_detour(entity_meta, "SetHealth", "health")
+fl_Entity_SetMaxHealth = create_function_detour(entity_meta, "SetMaxHealth", "max_health")
+fl_Entity_SetMoveType = create_function_detour(entity_meta, "SetMoveType", "move_type")
+fl_Entity_SetPos = create_function_detour(entity_meta, "SetPos", "position")
+fl_Player_GodDisable = create_function_detour(ply_meta, "GodDisable", "god", false)
+fl_Player_GodEnable = create_function_detour(ply_meta, "GodEnable", "god", true)
+fl_Player_SetArmor = create_function_detour(ply_meta, "SetArmor", "armor")
+fl_Player_SetCrouchedWalkSpeed = create_function_detour(ply_meta, "SetCrouchedWalkSpeed", "crouch_speed")
+fl_Player_SetFOV = create_function_detour(ply_meta, "SetFOV", "fov")
+fl_Player_SetJumpPower = create_function_detour(ply_meta, "SetJumpPower", "jump_power")
+fl_Player_SetLadderClimbSpeed = create_function_detour(ply_meta, "SetLadderClimbSpeed", "ladder_speed")
+fl_Player_SetRunSpeed = create_function_detour(ply_meta, "SetRunSpeed", "run_speed")
+fl_Player_SetSlowWalkSpeed = create_function_detour(ply_meta, "SetSlowWalkSpeed", "stroll_speed")
+fl_Player_SetWalkSpeed = create_function_detour(ply_meta, "SetWalkSpeed", "walk_speed")
+
+fl_Player_RemoveAllAmmo = create_function_detour(ply_meta, "RemoveAllAmmo", "ammo", {})
+fl_Player_StripAmmo = create_function_detour(ply_meta, "StripAmmo", "ammo", {})
+fl_Player_StripWeapons = create_function_detour(ply_meta, "StripWeapons", "arsenal", {})
+
+--localize these
+fl_Player_SetAmmo = create_function_header(ply_meta, "SetAmmo", function(ply, ply_index, count, ammo_type) ply_settings[ply_index].ammo[type(ammo_type) == "string" and game.GetAmmoID(ammo_type) or ammo_type] = count end)
+fl_Player_StripWeapon = create_function_header(ply_meta, "StripWeapon", function(ply, ply_index, weapon_class) ply_settings[ply_index].arsenal[weapon_class] = nil end)
+
+--global functions --SetPos
+--[[
+		ammo = ply:GetAmmo(),
+		angle = ply:EyeAngles(),
+		arsenal = {},
+		deaths = ply:Deaths(),
+		flashlight = ply:FlashlightIsOn(),
+		frags = ply:Frags(),
+		velocity = ply:GetVelocity(),
+]]
+
+--we can't just use a hook, because it will still allow the original method provided by the sandbox gamemode
+function GAMEMODE:PlayerDeathThink(ply)
+	local master_index = game_masters[ply:EntIndex()]
+	
+	if master_index then game_respawn_functions[game_settings[master_index].respawn_mode](ply, master_index)
+	else fl_GAMEMODE_PlayerDeathThink(GAMEMODE, ply) end
+end
+
+--probably need to make this work with other things that set it
+--I'm thinking of giving it its own setting in ply_settings
+function ply_meta:SetViewEntity(view_entity, ...)
+	local ply_index = self:EntIndex()
+	
+	if game_masters[ply_index] then
+		--cameras created by wire extras camera core
+		if view_entity.IsE2Camera then view_entity.user = nil end
+		
+		ply_settings[ply_index].view_entity = view_entity
+		
+		return false
+	else fl_Player_SetViewEntity(self, view_entity, ...) end
+end
 
 --e2functions
 __e2setcost(2)
@@ -694,24 +822,80 @@ do
 				local chip = self.entity
 				
 				--this will also check if there is an existing entity
-				local camera = camera_create(master_index, camera_index, chip:GetPos(), chip:GetAngles(), true)
-				
-				return camera
+				return camera_create(master_index, camera_index, chip:GetPos(), chip:GetAngles(), true)
 			end
 		end
 		
 		return NULL
 	end
 	
-	__e2setcost(6)
-	e2function number gameCameraRemove(camera_index)
+	__e2setcost(22)
+	e2function entity gameCameraCreate(camera_index, vector position)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		--only allow the game constructor to make cameras
+		if is_constructor then
+			local camera_count = game_camera_counts[master_index]
+			
+			--enforce a limit
+			if not camera_count or camera_count < game_max_cameras then
+				local position = clamp_to_map_bounds(position[1], position[2], position[3])
+				
+				if position then
+					--this will also check if there is an existing entity
+					return camera_create(master_index, camera_index, position, self.entity:GetAngles(), true)
+				end
+			end
+		end
+		
+		return NULL
+	end
+	
+	__e2setcost(25)
+	e2function entity gameCameraCreate(camera_index, vector position, angle angle)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		--only allow the game constructor to make cameras
+		if is_constructor then
+			local camera_count = game_camera_counts[master_index]
+			
+			--enforce a limit
+			if not camera_count or camera_count < game_max_cameras then
+				local angle = normalized_angle(angle[1], angle[2], angle[3])
+				local position = clamp_to_map_bounds(position[1], position[2], position[3])
+				
+				if position and angle then
+					--this will also check if there is an existing entity
+					return camera_create(master_index, camera_index, position, angle, true)
+				end
+			end
+		end
+		
+		return NULL
+	end
+	
+	__e2setcost(5)
+	e2function entity gameCameraEntity(camera_index)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor and game_cameras[master_index] then return game_cameras[master_index][camera_index] or NULL end
+		
+		return NULL
+	end
+	
+	__e2setcost(8)
+	e2function number gameCameraFOV(camera_index, fov)
 		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 		
 		if is_constructor and game_cameras[master_index] then
 			local camera = game_cameras[master_index][camera_index]
 			
-			if camera then
-				camera_remove:Remove()
+			if camera and ian(fov) then
+				local fov = fl_math_Clamp(fov, 0, 170)
+				
+				camera.FOV = fov
+				
+				for ply_index in pairs(camera.Viewers) do fl_Player_SetFOV(Entity(ply_index), fov) end
 				
 				return 1
 			end
@@ -720,7 +904,6 @@ do
 		return 0
 	end
 	
-	--camera.FOV
 	__e2setcost(10)
 	e2function number gameCameraLerp(camera_index, duration, vector end_position)
 		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
@@ -756,10 +939,74 @@ do
 				local duration = fl_math_Clamp(duration, 0, game_max_camera_lerp)
 				
 				if duration > 0 and end_position and start_position then
-					camera:NewLerp(duration, end_position, start_position)
+					camera:NewPosLerp(duration, end_position, start_position)
 					
 					return 1
 				end
+			end
+		end
+		
+		return 0
+	end
+	
+	__e2setcost(16)
+	e2function number gameCameraLerpBezier(camera_index, duration, vector control_position, vector end_position)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor and game_cameras[master_index] then
+			local camera = game_cameras[master_index][camera_index]
+			
+			if camera then
+				local control_position = clamp_to_map_bounds(control_position[1], control_position[2], control_position[3])
+				local duration = fl_math_Clamp(duration, 0, game_max_camera_lerp)
+				local end_position = clamp_to_map_bounds(end_position[1], end_position[2], end_position[3])
+				
+				if duration > 0 and control_position and end_position then
+					camera:NewPosBezierLerp(duration, end_position, control_position)
+					
+					return 1
+				end
+			end
+		end
+		
+		return 0
+	end
+	
+	__e2setcost(18)
+	e2function number gameCameraLerpBezier(camera_index, duration, vector start_position, vector control_position, vector end_position)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor and game_cameras[master_index] then
+			local camera = game_cameras[master_index][camera_index]
+			
+			if camera then
+				local control_position = clamp_to_map_bounds(control_position[1], control_position[2], control_position[3])
+				local duration = fl_math_Clamp(duration, 0, game_max_camera_lerp)
+				local end_position = clamp_to_map_bounds(end_position[1], end_position[2], end_position[3])
+				local start_position = clamp_to_map_bounds(start_position[1], start_position[2], start_position[3])
+				
+				if duration > 0 and control_position and end_position and start_position then
+					camera:NewPosBezierLerp(duration, end_position, control_position, start_position)
+					
+					return 1
+				end
+			end
+		end
+		
+		return 0
+	end
+	
+	__e2setcost(6)
+	e2function number gameCameraParent(camera_index, entity parent)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor and game_cameras[master_index] and IsValid(parent) then
+			local camera = game_cameras[master_index][camera_index]
+			
+			if camera and camera ~= parent and parent:GetClass() ~= "gmod_wire_game_core_camera" then
+				camera:SetParent(parent)
+				
+				return 1
 			end
 		end
 		
@@ -798,7 +1045,7 @@ do
 			local camera = game_cameras[master_index][camera_index]
 			
 			if camera then
-				camera_remove:Remove()
+				camera:Remove()
 				
 				return 1
 			end
@@ -815,6 +1062,23 @@ do
 			camera_remove_all(master_index)
 			
 			return 1
+		end
+		
+		return 0
+	end
+	
+	__e2setcost(5)
+	e2function number gameCameraUnparent(camera_index)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor and game_cameras[master_index] and IsValid(parent) then
+			local camera = game_cameras[master_index][camera_index]
+			
+			if camera then
+				camera:SetParent()
+				
+				return 1
+			end
 		end
 		
 		return 0
@@ -842,18 +1106,17 @@ e2function number gameOpen()
 	
 	if game_constructor[master_index] then return 0 end
 	
-	--why does game settings not always exist when I reach this function? It should as construct is called when the e2 is loaded
 	if not game_settings[master_index] then
-		print("Looks like game_settings was not constructed when we opened the game... here's the trace:")
+		--this happened ONCE before, and I want to know if it ever happens again
+		print("\nvvv PLEASE REPORT THIS TO THE DEVELOPER vvv\n[Game Core] Looks like game_settings was not constructed when we opened the game... here's the trace:")
 		debug.Trace()
-		print("Constructing...")
+		print("Constructing...\n^^^ PLEASE REPORT THIS TO THE DEVELOPER ^^^\n")
 		
 		construct_game_settings(master_index)
 	end
 	
 	game_constructor[chip_index] = master_index
 	game_constructor[master_index] = chip_index
-	game_settings[master_index].active = true
 	
 	add_sync_request(master_index)
 	
@@ -930,7 +1193,7 @@ do
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 			
 			if is_constructor then
-				timer.Simple(0, function() game_function_players(master_index, function(ply) ply:Spawn() end) end)
+				game_function_players(master_index, function(ply) ply:Spawn() end)
 				
 				return 1
 			end
@@ -943,8 +1206,7 @@ do
 			local is_participating = game_evaluator_player_only(self, this)
 			
 			if is_participating then
-				--so we don't cause an infinite loop?
-				timer.Simple(0, function() this:Spawn() end)
+				this:Spawn()
 				
 				return 1
 			end
@@ -1259,7 +1521,7 @@ do
 		end
 	end
 	
-	--speed
+	--movement
 	do
 		__e2setcost(10)
 		e2function number gamePlayerSetCrouchSpeedMultiplier(multiplier)
@@ -1275,8 +1537,21 @@ do
 			
 			return 0
 		end
+
+		e2function number entity:gamePlayerSetJumpPower(power)
+			local is_participating = game_evaluator_player_only(self, this)
+			
+			if is_participating then
+				local power = fl_math_Clamp(power, 0, 1024)
+				
+				game_function_players(master_index, function(ply) fl_Player_SetJumpPower(this, power) end)
+				
+				return 1
+			end
+			
+			return 0
+		end
 		
-		__e2setcost(10)
 		e2function number gamePlayerSetLadderSpeed(speed)
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 			
@@ -1291,7 +1566,6 @@ do
 			return 0
 		end
 		
-		__e2setcost(10)
 		e2function number gamePlayerSetRunSpeed(speed)
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 			
@@ -1306,7 +1580,6 @@ do
 			return 0
 		end
 		
-		__e2setcost(10)
 		e2function number gamePlayerSetSpeed(speed)
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 			
@@ -1321,7 +1594,6 @@ do
 			return 0
 		end
 		
-		__e2setcost(10)
 		e2function number gamePlayerSetWalkSpeed(speed)
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 			
@@ -1349,7 +1621,18 @@ do
 			return 0
 		end
 		
-		__e2setcost(4)
+		e2function number entity:gamePlayerSetJumpPower(power)
+			local is_participating = game_evaluator_player_only(self, this)
+			
+			if is_participating then
+				fl_Player_SetJumpPower(this, fl_math_Clamp(power, 0, 1024))
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
 		e2function number entity:gamePlayerSetLadderSpeed(speed)
 			local is_participating = game_evaluator_player_only(self, this)
 			
@@ -1362,7 +1645,6 @@ do
 			return 0
 		end
 		
-		__e2setcost(4)
 		e2function number entity:gamePlayerSetRunSpeed(speed)
 			local is_participating = game_evaluator_player_only(self, this)
 			
@@ -1375,7 +1657,6 @@ do
 			return 0
 		end
 		
-		__e2setcost(4)
 		e2function number entity:gamePlayerSetSpeed(speed)
 			local is_participating = game_evaluator_player_only(self, this)
 			
@@ -1388,7 +1669,6 @@ do
 			return 0
 		end
 		
-		__e2setcost(4)
 		e2function number entity:gamePlayerSetWalkSpeed(speed)
 			local is_participating = game_evaluator_player_only(self, this)
 			
@@ -1409,7 +1689,7 @@ do
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 			
 			if is_constructor then
-				for ply_index in pairs(game_settings[master_index].plys) do Entity(ply_index):StripAmmo() end
+				for ply_index in pairs(game_settings[master_index].plys) do fl_Player_StripAmmo(Entity(ply_index)) end
 				
 				return 1
 			end
@@ -1422,7 +1702,7 @@ do
 			local is_participating = game_evaluator_player_only(self, this)
 			
 			if is_participating then
-				this:StripAmmo()
+				fl_Player_StripAmmo(this)
 				
 				return 1
 			end
@@ -1438,8 +1718,8 @@ do
 				for ply_index in pairs(game_settings[master_index].plys) do
 					local ply = Entity(ply_index)
 					
-					ply:StripAmmo()
-					ply:StripWeapons()
+					fl_Player_StripAmmo(ply)
+					fl_Player_StripWeapons(ply)
 				end
 				
 				return 1
@@ -1453,8 +1733,8 @@ do
 			local is_participating = game_evaluator_player_only(self, this)
 			
 			if is_participating then
-				this:StripAmmo()
-				this:StripWeapons()
+				fl_Player_StripAmmo(this)
+				fl_Player_StripWeapons(this)
 				
 				return 1
 			end
@@ -1467,7 +1747,7 @@ do
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 			
 			if is_constructor then
-				for ply_index in pairs(game_settings[master_index].plys) do Entity(ply_index):StripWeapons() end
+				for ply_index in pairs(game_settings[master_index].plys) do fl_Player_StripWeapons(Entity(ply_index)) end --use undetoured
 				
 				return 1
 			end
@@ -1480,7 +1760,7 @@ do
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 			
 			if is_constructor then
-				for ply_index in pairs(game_settings[master_index].plys) do Entity(ply_index):StripWeapon(weapon_class) end
+				for ply_index in pairs(game_settings[master_index].plys) do fl_Player_StripWeapons(Entity(ply_index)) end  --use undetoured
 				
 				return 1
 			end
@@ -1493,7 +1773,7 @@ do
 			local is_participating = game_evaluator_player_only(self, this)
 			
 			if is_participating then
-				this:StripWeapons()
+				fl_Player_StripWeapons(this)  --use undetoured
 				
 				return 1
 			end
@@ -1506,7 +1786,7 @@ do
 			local is_participating = game_evaluator_player_only(self, this)
 			
 			if is_participating then
-				this:StripWeapon(weapon_class)
+				this:StripWeapon(weapon_class)  --use undetoured
 				
 				return 1
 			end
@@ -1771,7 +2051,12 @@ e2function number entity:gameRequest()
 		if game_request_delays[master_index] and game_request_delays[master_index][ply_index] then return game_constants.REQUEST_LIMITED end
 		
 		--if they're a bot, and the master is an admin, force the bot into the game
-		if this:IsBot() and master:IsAdmin() then game_add(this, master_index) end
+		if this:IsBot() and master:IsAdmin() then
+			game_add(this, master_index)
+			
+			--works for bots without an infinite loop, I hope
+			if run_game_joins[entity] then game_function_execute(entity, {game_join_run = ply}) end
+		end
 		
 		--we made it, now time to send the request
 		if queue_game_requests[ply_index] then queue_game_requests[ply_index][master_index] = true
@@ -1784,6 +2069,10 @@ e2function number entity:gameRequest()
 		--if the owner makes the request we will just put them into the game and return game_constants.RESPONSE_ACCEPT_FORCED
 		if game_request_delays[master_index] then game_request_delays[master_index][ply_index] = CurTime() + 5
 		else game_request_delays[master_index] = {[ply_index] = CurTime() + 5} end
+		
+		--finally, register that the chip actually made a request for the player to join
+		--we need this so players with cheats can't respond to a request that was never made, yes someone did this to get into games without a request
+		game_settings[master_index].requests[ply_index] = true
 		
 		return game_constants.REQUEST_SENT
 		
@@ -1879,6 +2168,18 @@ do
 		return 0
 	end
 	
+	e2function number gameSetDefaultJumpPower(power)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor then
+			game_settings[master_index].defaults.jump_power = fl_math_Clamp(power, 0, 1024)
+			
+			return 1
+		end
+		
+		return 0
+	end
+	
 	e2function number gameSetDefaultLadderSpeed(speed)
 		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 		
@@ -1896,6 +2197,30 @@ do
 		
 		if is_constructor then
 			game_settings[master_index].defaults.max_health = fl_math_Clamp(max, 1, 1000)
+			
+			return 1
+		end
+		
+		return 0
+	end
+	
+	e2function number gameSetDefaultRespawnDelay(delay)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor and ian(delay) then
+			game_settings[master_index].defaults.respawn_delay = fl_math_Clamp(delay, 0.1, 60)
+			
+			return 1
+		end
+		
+		return 0
+	end
+	
+	e2function number gameSetDefaultRespawnMode(enum)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor then
+			game_settings[master_index].respawn_mode = enum > 0 and enum < 5 and enum or 2
 			
 			return 1
 		end
@@ -1949,19 +2274,6 @@ e2function number gameSetJoinable(joinable)
 		add_sync_request(master_index)
 		
 		game_settings[master_index].open = joinable ~= 0 and true or false
-		
-		return 1
-	end
-	
-	return 0
-end
-
-__e2setcost(2)
-e2function number gameSetRespawnMode(enum)
-	local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-	
-	if is_constructor then
-		game_settings[master_index].respawn_mode = enum > 0 and enum < 5 and enum or 2
 		
 		return 1
 	end
@@ -2111,6 +2423,13 @@ concommand.Add("wire_game_core_debug_cameras", function()
 	PrintTable(ply_cameras, 1)
 end, nil, "Debuge for game core, shows info about cameras.")
 
+concommand.Add("wire_game_core_debug_settings", function()
+	print("Game masters")
+	PrintTable(game_masters, 1)
+	print("Game settings")
+	PrintTable(game_settings, 1)
+end, nil, "Debuge for game core, shows info about cameras.")
+
 --cvars
 cvars.AddChangeCallback("wire_game_core_max_armor", function() game_max_armor = wire_game_core_max_armor:GetInt() end)
 cvars.AddChangeCallback("wire_game_core_max_camera_lerp", function() game_max_camera_lerp = wire_game_core_max_camera_lerp:GetFloat() end)
@@ -2165,39 +2484,40 @@ hook.Add("EntityTakeDamage", "wire_game_core", function(victim, damage_info)
 	if master_index then
 		local settings = game_settings[master_index]
 		
-		--might as well do this here because we are using a damage hook already
-		if damage_info:IsFallDamage() and settings.block_fall_damage then return true end
 		if game_damage_taken[victim_index] then damage_info:ScaleDamage(game_damage_taken[victim_index]) end
-		
 		if attacker_valid and game_damage_dealt[attacker_index] then damage_info:ScaleDamage(game_damage_dealt[attacker_index]) end
 	end
 end)
 
+hook.Add("GetFallDamage", "wire_game_core", function(ply)
+	local ply_index = ply:EntIndex()
+	local master_index = game_masters[ply_index]
+	
+	if master_index and game_settings[master_index].block_fall_damage then return 0 end
+end)
+
 hook.Add("PlayerDeath", "wire_game_core", function(victim, inflictor, attacker)
-	local master_index = game_masters[victim:EntIndex()]
+	local victim_index = victim:EntIndex()
+	local master_index = game_masters[victim_index]
 	
 	if master_index then
 		local entity = Entity(game_constructor[master_index])
 		local defaults = game_settings[master_index].defaults
 		
-		if defaults.respawn_mode == 2 then game_respawns = defaults.respawn_delay end
+		if defaults.respawn_mode == game_constants.RESPAWNMODE_DELAYED then
+			print("setting spawn delay", defaults.respawn_delay)
+			
+			game_respawns[victim_index] = CurTime() + defaults.respawn_delay
+		end
 		
 		if run_game_deaths[entity] then
-			entity.context.data.game_death_run = victim
-			entity.context.data.game_death_run_attacker = attacker
-			entity.context.data.game_death_run_inflictor = inflictor
-			entity:Execute()
-			entity.context.data.game_death_run = nil
-			entity.context.data.game_death_run_attacker = nil
-			entity.context.data.game_death_run_inflictor = nil
+			game_function_execute(entity, {
+				game_death_run = victim,
+				game_death_run_attacker = attacker,
+				game_death_run_inflictor = inflictor
+			})
 		end
 	end
-end)
-
-hook.Add("PlayerDeathThink", "wire_game_core", function(ply)
-	local master_index = game_masters[ply:EntIndex()]
-	
-	if master_index then game_respawn_functions[game_settings[master_index].respawn_mode](ply, master_index) end
 end)
 
 hook.Add("PlayerDisconnected", "wire_game_core", function(ply)
@@ -2240,12 +2560,7 @@ hook.Add("PlayerSpawn", "wire_game_core", function(ply)
 		
 		game_acclimate(ply, ply_index, game_settings[master_index].defaults)
 		
-		if run_game_respawns[entity] then
-			entity.context.data.game_respawn_run = ply
-			entity:Execute()
-			entity.context.data.game_respawn_run = ply
-		end
-		
+		if run_game_respawns[entity] then game_function_execute(entity, {game_respawn_run = ply}) end
 		if ulib_spawn then ply.ULibSpawnInfo = nil end
 		
 		return true
@@ -2344,14 +2659,18 @@ hook.Add("Think", "wire_game_core", function()
 		end
 		
 		for master_index in pairs(queue_game_sync) do
-			send[master_index] = {}
+			local settings = game_settings[master_index]
 			
-			for key, value in pairs(game_settings[master_index] or {}) do
-				if game_synced_settings[key] then
-					--we only want certain things networked
-					send[master_index][key] = value
-				end 
-			end
+			if settings then
+				send[master_index] = {}
+				
+				for key, value in pairs(settings) do
+					if game_synced_settings[key] then
+						--we only want certain things networked
+						send[master_index][key] = value
+					end 
+				end
+			else send[master_index] = false end
 		end
 		
 		net.Start("wire_game_core_sync")
@@ -2413,70 +2732,89 @@ end)
 net.Receive("wire_game_core_block", function(_, ply)
 	local master_index = net.ReadUInt(8)
 	local master_is_blocked = net.ReadBool()
-	local ply_index = ply:EntIndex()
 	
-	if master_index ~= ply_index then block(ply_index, master_index, master_is_blocked) end
+	if master_index and master_is_blocked ~= nil then
+		local ply_index = ply:EntIndex()
+		
+		if master_index ~= ply_index then block(ply_index, master_index, master_is_blocked) end
+		
+		net.Start("wire_game_core_block")
+		net.WriteTable(game_blocks[ply_index] or {})
+		net.Send(ply)
+	end
+end)
+
+net.Receive("wire_game_core_join", function(_, ply)
+	--called when they join by the browser
+	local master_index = net.ReadUInt(8)
 	
-	net.Start("wire_game_core_block")
-	net.WriteTable(game_blocks[ply_index] or {})
-	net.Send(ply)
+	if master_index then --cheaters may not send a master_index, causing script errors
+		local ply_index = ply:EntIndex()
+		
+		if not game_masters[ply_index] and game_settings[master_index] and game_settings[master_index].open then
+			local chip_index = game_constructor[master_index]
+			
+			if chip_index then
+				local entity = Entity(chip_index)
+				game_settings[master_index].requests[ply_index] = nil
+				
+				game_add(ply, master_index)
+				
+				--now run the chip that has runOnJoin
+				if run_game_joins[entity] then game_function_execute(entity, {game_join_run = ply}) end
+			end
+		end
+	end
 end)
 
 net.Receive("wire_game_core_leave", function(_, ply) if IsValid(ply) and game_masters[ply:EntIndex()] then game_remove(ply, game_constants.LEAVE_CHOICE) end end)
 
 net.Receive("wire_game_core_request", function(_, ply)
-	local ply_index = ply:EntIndex()
 	local response = net.ReadInt(8)
 	local master_index = net.ReadUInt(8)
-	local queued = net.ReadBool()
 	
-	local chip_index = game_constructor[master_index]
-	
-	if chip_index then
-		local entity = Entity(chip_index)
+	if response and master_index then --cheaters may not send a response or master_index, causing script errors
+		local chip_index = game_constructor[master_index]
+		local ply_index = ply:EntIndex()
 		
-		if run_game_requests[entity] then
-			entity.context.data.game_request_run = response
-			entity.context.data.game_request_run_ply = ply
-			entity:Execute()
-			entity.context.data.game_request_run = nil
-			entity.context.data.game_request_run_ply = nil
-		end
-		
-		if response > 0 then
-			game_add(ply, master_index)
-			
-			--now run those who have runOnJoin
-			if run_game_joins[entity] then
-				entity.context.data.game_join_run = ply
-				entity:Execute()
-				entity.context.data.game_join_run = nil
-			end
-		elseif response == game_constants.RESPONSE_BLOCKED then block(ply_index, master_index, true) end
-	end
-	
-	if queued then
-		PrintMessage(HUD_PRINTTALK, "More responses are queued!")
-		
-		local queued_master_indices = net.ReadTable()
-		
-		for index, master_index in pairs(queued_master_indices) do
-			PrintMessage(HUD_PRINTTALK, "Handling additional response: " .. index .. " - " .. master_index)
-			
-			local chip_index = game_constructor[master_index]
-			
-			if game_constructor[master_index] then
-				PrintMessage(HUD_PRINTTALK, "Executing!")
-				
+		if chip_index then
+			if game_settings[master_index].requests[ply_index] then
 				local entity = Entity(chip_index)
 				
-				entity.context.data.game_request_run = game_constants.RESPONSE_SUPERSEDED
-				entity.context.data.game_request_run_ply = ply
-				entity:Execute()
-				entity.context.data.game_request_run = nil
-				entity.context.data.game_request_run_ply = nil
+				if run_game_requests[entity] then
+					game_function_execute(entity, {
+						game_request_run = response,
+						game_request_run_ply = ply
+					})
+				end
+				
+				if response > 0 then
+					game_add(ply, master_index)
+					
+					--now run the chips that have runOnJoin
+					if run_game_joins[entity] then game_function_execute(entity, {game_join_run = ply}) end
+				elseif response == game_constants.RESPONSE_BLOCKED then block(ply_index, master_index, true) end
 			end
 			
+			game_settings[master_index].requests[ply_index] = nil
+		end
+		
+		--if they had other requests queued, we need to go through all of them and respond
+		if net.ReadBool() then
+			local queued_master_indices = net.ReadTable() or {}
+			
+			for index, master_index in pairs(queued_master_indices) do
+				local chip_index = game_constructor[master_index]
+				
+				if game_constructor[master_index] then
+					local entity = Entity(chip_index)
+					
+					game_function_execute(entity, {
+						game_request_run = game_constants.RESPONSE_SUPERSEDED,
+						game_request_run_ply = ply
+					})
+				end
+			end
 		end
 	end
 end)
@@ -2547,4 +2885,7 @@ do
 			hook.Remove("InitPostEntity", "wire_game_core")
 		end)
 	else detour_spawn() end
+	
+	--hook for ulx commands
+	--hook.Call("ULibCommandCalled", _, ply, data.__cmd, argv )
 end

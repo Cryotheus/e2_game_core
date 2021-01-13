@@ -10,24 +10,27 @@ local player_visibility = 1
 
 local game_master
 local game_master_index
+local last_alive = false
 local me
 local me_index
 local rad_to_deg = (2 * math.pi) / 360
-local response_made = false
 local settings_form
 local weapon_class
 
 --scoped functions
 local generate_block_form
+local open_browser
 local open_request_gui
 
 ----colors
 	local color_button_text = Color(224, 224, 224)
 	local color_dark = Color(26, 26, 26)
-	local color_dark_baseboard = Color(30, 30, 30)
+	local color_dark_baseboard = Color(28, 28, 28)
 	local color_dark_button = Color(36, 36, 36)
+	local color_dark_button_hover = Color(42, 42, 42)
 	local color_dark_header = Color(44, 44, 44)
 	local color_dark_text = Color(96, 96, 96)
+	local color_dark_track = Color(31, 31, 31)
 	local color_expression = Color(150, 34, 34)
 	local color_expression_excited = Color(158, 47, 47)
 	local color_game_highlight = Color(128, 255, 128)
@@ -38,7 +41,11 @@ local open_request_gui
 local block_form
 local button_reload
 local browser
+local browser_baseboard_h
+local browser_button_h
 local browser_h
+local browser_icon_material = Material("vgui/wire_game_core/icon.png")
+local browser_icon_size
 local browser_margin = 100
 local browser_w
 local browser_x
@@ -49,12 +56,12 @@ local context_menu
 local debug_panel_cogs
 local game_bar
 local player_visibility_function
-local game_bar_button_hide_h
 local game_bar_button_hide_phrases = {"Hide Excluded Players", "Hide All Players", "Reveal Players"}
 local game_bar_button_hide_y
 local game_bar_button_leave_h
 local game_bar_button_leave_w
 local game_bar_button_leave_y
+local game_bar_button_undecided_y
 local game_bar_cogs
 local game_bar_desired = false
 local game_bar_h
@@ -65,6 +72,8 @@ local game_bar_x
 local game_bar_y
 local header = 24
 local margin = 4
+local margin_double = margin * 2
+local margin_half = margin * 0.5
 local player_visibility_button
 local pop_up
 local pop_up_baseboard_h
@@ -196,9 +205,9 @@ local function add_block_checkbox(ply)
 		check_box:SetEnabled(false)
 		check_box:SetMouseInputEnabled(false)
 		
-		check_box.OnChange = function(self, checked) check_box:SetChecked(true) end
+		function check_box:OnChange(checked) self:SetChecked(true) end
 	else
-		check_box.OnChange = function(self, checked)
+		function check_box:OnChange(checked)
 			if IsValid(ply) then
 				for master_index, panel in pairs(game_blocks_check_boxes) do panel:SetEnabled(false) end
 				
@@ -250,7 +259,8 @@ end
 
 local function button_paint(self, w, h)
 	if self.Depressed or self:IsSelected() or self:GetToggle() then fl_surface_SetDrawColor(color_expression)
-	elseif self.Hovered then fl_surface_SetDrawColor(color_dark_header)
+	elseif not self:IsEnabled() then fl_surface_SetDrawColor(color_dark_baseboard)
+	elseif self.Hovered then fl_surface_SetDrawColor(color_dark_button_hover)
 	else fl_surface_SetDrawColor(color_dark_button) end
 	
 	fl_surface_DrawRect(0, 0, w, h)
@@ -283,12 +293,15 @@ local function calc_cogs(start_rate, start_size, start_x, start_y, ideas, debugg
 		current_x = current_x + math.cos(current_angle * math.pi / 180) * idea_radius
 		current_y = current_y + math.sin(current_angle * math.pi / 180) * idea_radius
 		
+		--[[ --this is impossible to solve, I swear
 		local last_cog = cogs[last_cog_index]
 		local joint_angle = math.atan2(current_y, current_x) / math.pi * 180
-		local offset = 180 - ( ( last_cog.offset + joint_angle ) * ( idea.size / last_cog.size ) ) - joint_angle
+		local offset = 180 - ( ( last_cog.offset + joint_angle ) * ( calc_size / last_cog.size ) ) - joint_angle
+		--]]
 		
 		last_cog_index = table.insert(cogs, {
-			offset = offset,--idea.offset,
+			offset = idea.offset,
+			--offset = offset,
 			rate = rate,
 			size = calc_size,
 			x = current_x,
@@ -303,8 +316,6 @@ end
 
 local function calc_vars()
 	local browser_margin_double = browser_margin * 2
-	local margin_double = margin * 2
-	local margin_half = margin * 0.5
 	
 	scr_h = ScrH()
 	scr_w = ScrW()
@@ -314,6 +325,12 @@ local function calc_vars()
 	browser_x = browser_margin
 	browser_y = browser_margin
 	
+	browser_baseboard_h = browser_h * 0.2
+	browser_icon_size = browser_baseboard_h - margin_double
+	
+	--so we get almost 5 entries to fit
+	browser_button_h = (browser_h - browser_baseboard_h - header) * 0.2
+	
 	game_bar_animation_curve = 0.5
 	game_bar_animation_duration = 0.3
 	game_bar_h = scr_h * 0.15
@@ -321,12 +338,16 @@ local function calc_vars()
 	game_bar_x = (scr_w - game_bar_w) * 0.5
 	game_bar_y = scr_h - game_bar_h
 	
-	game_bar_button_leave_h = (game_bar_h - game_bar_header) * 0.25 - margin - margin_half
-	game_bar_button_leave_w = game_bar_w * 0.25 - margin_double
+	game_bar_sidebar_h = game_bar_h - game_bar_header
+	game_bar_sidebar_w = game_bar_w * 0.25
+	
+	game_bar_button_leave_h = game_bar_sidebar_h * 0.25 - margin - margin_half
+	game_bar_button_leave_w = game_bar_sidebar_w - margin_double
 	game_bar_button_leave_y = game_bar_header + margin
 	
-	game_bar_button_hide_h = game_bar_button_leave_h
 	game_bar_button_hide_y = game_bar_button_leave_y + game_bar_button_leave_h + margin
+	
+	game_bar_button_undecided_y = game_bar_button_hide_y + game_bar_button_leave_h + margin
 	
 	pop_up_h = scr_h * 0.2
 	pop_up_w = scr_w * 0.2
@@ -344,99 +365,6 @@ local function calc_vars()
 	
 	pop_up_baseboard_h = pop_up_h - pop_up_button_accept_y + margin_double
 	pop_up_baseboard_y = pop_up_button_accept_y - margin
-	
-	--[[
-	debug_panel_cogs = calc_cogs(10, 1, 400, 400, {
-		{
-			angle = 45,
-			offset = 0,
-			size = 1
-		},
-		{
-			angle = 45,
-			offset = 0,
-			size = 0.5
-		},
-		{
-			angle = 90,
-			offset = 0,
-			size = 0.25
-		},
-		{
-			angle = 0,
-			offset = 0,
-			size = 0.5
-		},
-		{
-			angle = 0,
-			offset = 0,
-			size = 1
-		},
-		{
-			angle = 30,
-			offset = 0,
-			size = 0.5
-		},
-		{
-			angle = 68,
-			offset = 0,
-			size = 1
-		},
-		{
-			angle = -24,
-			offset = 0,
-			size = 2
-		},
-		{
-			angle = 106,
-			offset = 0,
-			size = 0.5
-		},
-		{
-			angle = -45,
-			offset = 0,
-			size = 1.5
-		},
-		{
-			angle = 45,
-			offset = 0,
-			size = 0.5
-		},
-		{
-			angle = 80,
-			offset = 0,
-			size = 1
-		},
-		{
-			angle = 10,
-			offset = 0,
-			size = 0.5
-		}
-	}, true) --]]
-	
-	---[[
-	debug_panel_cogs = calc_cogs(10, 1, 200, 200, {
-		{
-			angle = -45,
-			size = 1
-		},
-		{
-			angle = 90,
-			size = 1
-		},
-		{
-			angle = 60,
-			size = 1
-		},
-		{
-			angle = 40,
-			size = 1
-		},
-		{
-			angle = -45,
-			size = 1
-		},
-	}, true) --]]
 	
 	game_bar_cogs = calc_cogs(10, 1, 0, 0, {
 		{
@@ -501,6 +429,24 @@ local function calc_vars()
 	end
 	
 	adjust_player_visibility()
+	
+	--reset the lists value
+	local existing_list = list.GetForEdit("DesktopWindows")
+	local window_data = {
+		title		= "Game Browser", --text under the icon
+		icon		= "icon64/e2_game_core.png", --path to png, preferrably in icon64
+		width		= browser_w,
+		height		= browser_h,
+		onewindow	= true, --if the window created is already opened, just recenter it instead of recreating it
+		init		= open_browser --function which provides the DButton created on the desktop, it has a DImage and DLabel child, and provides the DFrame created
+	}
+	
+	if existing_list and existing_list.WireGameCore then
+		existing_list.WireGameCore = window_data
+		
+		--we need the context menu to update it
+		CreateContextMenu()
+	else list.Set("DesktopWindows", "WireGameCore", window_data) end
 end
 
 local function draw_cogs(cogs)
@@ -514,10 +460,6 @@ end
 
 local function forward_response(enum)
 	pop_up = nil
-	response_made = true
-	
-	print("Before test")
-	PrintTable(held_requests, 1)
 	
 	net.Start("wire_game_core_request")
 	net.WriteInt(enum, 8)
@@ -544,16 +486,21 @@ local function forward_response(enum)
 	net.WriteBool(false)
 	net.SendToServer()
 	
-	print("Before removal")
-	PrintTable(held_requests, 1)
-	
 	--remove the request, and open the next
 	table.remove(held_requests, 1)
 	
-	print("After removal")
-	PrintTable(held_requests, 1)
-	
 	if #held_requests > 0 then open_request_gui() end
+end
+
+local function game_bar_message(new_line, ...)
+	local rich_text = game_bar.rich_text
+	
+	if new_line then rich_text:AppendText("\n") end
+	
+	for index, value in ipairs({...}) do
+		if type(value) == "string" then rich_text:AppendText(value)
+		else rich_text:InsertColorChange(value[1], value[2], value[3], 255) end
+	end
 end
 
 generate_block_form = function()
@@ -582,7 +529,7 @@ local function generate_settings_form(form)
 	player_visibility_button:SetText(game_bar_button_hide_phrases[player_visibility])
 	settings_form:AddItem(player_visibility_button)
 	
-	player_visibility_button.DoClick = function(self)
+	function player_visibility_button:DoClick()
 		player_visibility = player_visibility % 3 + 1
 		
 		adjust_player_visibility()
@@ -600,110 +547,298 @@ local function generate_settings_form(form)
 	generate_block_form()
 end
 
+open_browser = function(icon, window)
+	browser = window
+	
+	browser:SetContentAlignment(8)
+	browser:SetDraggable(false)
+	browser:SetSize(browser_w, browser_h)
+	browser:SetTitle("Game Browser")
+	
+	function browser:OnClose() browser = nil end
+	
+	function browser:Paint(w, h)
+		fl_surface_SetDrawColor(color_dark)
+		fl_surface_DrawRect(0, 0, w, h)
+		
+		draw_cogs(game_bar_cogs)
+		
+		fl_surface_SetDrawColor(color_dark_header)
+		fl_surface_DrawRect(0, 0, w, header)
+		
+		fl_surface_SetDrawColor(color_dark_track)
+		fl_surface_DrawRect(0, header, w, browser_baseboard_h)
+	end
+	
+	--the icon on the top left, clicking it will take you to the workshop page
+	do
+		local button_icon = vgui.Create("DButton", browser)
+		
+		button_icon:SetPos(margin, margin + header)
+		button_icon:SetSize(browser_icon_size, browser_icon_size)
+		button_icon:SetText("")
+		
+		function button_icon:DoClick() gui.OpenURL("https://wiki.facepunch.com/gmod/") end
+		
+		function button_icon:Paint(w, h)
+			fl_surface_SetDrawColor(color_white)
+			fl_surface_SetMaterial(browser_icon_material)
+			fl_surface_DrawTexturedRect(0, 0, w, h)
+		end
+	end
+	
+	----label with info about this addon
+	do
+		local label_info = vgui.Create("DLabel", browser)
+		
+		label_info:SetContentAlignment(7)
+		--label_info:SetFont("Trebuchet24")
+		label_info:SetPos(browser_icon_size + margin * 2, margin + header)
+		label_info:SetSize(browser_w - browser_icon_size - 3 * margin, browser_icon_size)
+		label_info:SetText("View active games made with Wire Expression 2 Game Core below. Open games can be joined from here without an invite. If you'd like to create your own games with Expression 2, search up \"game\" in the E2Helper for a list of available functions. Alternatively, a list of functions will be available on the github. You can get to the github from the workshop page (the icon to the left of this text will link you to the workshop page).\n\nIf you'd like to make your game open so anyone can join it, you can use the gameSetJoinable function to do so. Alternatively, you can leave your game closed but send invites with the gameRequest function. Do note that this function has a cool down")
+		label_info:SetWrap(true)
+	end
+	
+	----scroller containing a list of games
+	do
+		local scroll_bar = vgui.Create("DScrollPanel", browser)
+		
+		scroll_bar:Dock(FILL)
+		scroll_bar:DockMargin(0, browser_baseboard_h, 0, 0)
+		
+		--create entries, note that this can get expensive, but it will not get more expensive than O(n^2 + n)
+		function scroll_bar:GenerateGameEntries()
+			--todo: make it so individual entries are updated, instead of recreating this list every time a sync is received
+			--if a new game appears, or players change, then we reconstruct it
+			local order = {}
+			
+			--remove the old entries
+			self:Clear()
+			
+			--assign a score to each game settings, and sort them into order
+			local fake_game_settings = table.Merge({
+				[2] = {
+					open = true,
+					plys = {
+						[2] = true,
+						[3] = true,
+						[4] = true,
+						[6] = true
+					},
+					title = "Team Fortress 3"
+				},
+				[3] = {
+					open = false,
+					plys = {
+						[5] = true,
+						[7] = true,
+						[8] = true,
+						[9] = true,
+						[10] = true,
+						[11] = true,
+						[12] = true
+					},
+					title = "Cum Chalice Challenge"
+				}
+			}, table.Copy(game_settings))
+			
+			--determine "scores" for each game, higher score means higher placement in the list
+			for master_index, settings in pairs(fake_game_settings) do
+				local achieved = 0
+				local chosen_index = #order + 1
+				
+				if settings.open then achieved = table.Count(settings.plys) + 257
+				else achieved = table.Count(settings.plys) + 1 end
+				
+				for index, data in ipairs(order) do
+					if achieved > data[2] then
+						--we found a spot which they fit, put them in it
+						chosen_index = index
+						
+						break
+					end
+				end
+				
+				table.insert(order, chosen_index, {master_index, achieved, settings.title, settings.open})
+			end
+			
+			--create the entries in the order determined
+			for _, data in ipairs(order) do
+				local button = vgui.Create("DButton", self)
+				local button_layout = button.PerformLayout
+				local master_index = data[1]
+				
+				--we need the entity to get name n stuff
+				local master = Entity(master_index)
+				local master_valid = IsValid(master)
+				
+				self:AddItem(button)
+				
+				button:Dock(TOP)
+				button:DockMargin(margin, margin, margin, 0)
+				button:SetText(data[2] .. " - " .. data[3])
+				button:SetHeight(browser_button_h)
+				
+				button.Paint = button_paint
+				
+				----player's avatar
+					local avatar = vgui.Create("AvatarImage", button)
+					
+					avatar:Dock(LEFT)
+					avatar:DockMargin(4, 4, 0, 20)
+					avatar:InvalidateLayout(true)
+					
+					if master_valid then avatar:SetPlayer(master, 184) end
+				
+				----player name
+					local label_host = vgui.Create("DLabel", button)
+					
+					label_host:SetContentAlignment(5)
+					label_host:SetText(master_valid and master:Nick() or "Invalid")
+					label_host:SetTextColor(color_dark_text)
+				
+				--make it so players can join the game if it's open
+				if data[4] then
+					function button:DoClick()
+						net.Start("wire_game_core_join")
+						net.WriteInt(master_index, 8)
+						net.SendToServer()
+						
+						browser:Close()
+					end
+				else
+					button:SetCursor("none")
+					button:SetEnabled(false)
+				end
+				
+				--properly size stuff
+				function button:PerformLayout(w, h)
+					local avatar_size = h - 24
+					
+					avatar:SetWidth(h - 24) --24 is top margin + bottom margin
+					
+					label_host:SetPos(4, h - 20) --bottom margin of avatar
+					label_host:SetSize(avatar_size, 20)
+				end
+			end
+		end
+		
+		--now call that function we made
+		scroll_bar:GenerateGameEntries()
+		
+		--give us access for later :)
+		browser.scroll_bar = scroll_bar
+	end
+end
+
 open_request_gui = function()
 	held_requests[1][2] = CurTime() + pop_up_duration
 	pop_up = vgui.Create("DFrame", nil, "WireGameCoreRequest")
-	response_made = false
 	
 	local pop_up_layout = pop_up.PerformLayout
 	local requester_index = held_requests[1][1]
-	local requester = Entity(requester_index)
+	local requester_name = Entity(requester_index):Nick()
 	
-	pop_up:SetTitle("Game request from " .. requester:Nick())
+	pop_up:SetTitle("Game request from " .. requester_name)
 	pop_up:SetSize(pop_up_w, pop_up_h)
 	
-	--we won't need the minimize button
+	--we won't need the minimize button, but we'll keep the maximize and close to repurpose them
 	pop_up.btnMinim:SetVisible(false)
 	
-	--close/deny button, reuses the close button
-	local button_close = pop_up.btnClose
-	
-	button_close:SetText("Deny")
-	button_close:SetTextColor(color_white)
-	
-	button_close.DoClick = function(self)
-		print("Deny")
-		PrintTable(held_requests, 1)
+	--close and deny button, reuses the close button
+	----we can't put it in a do end block because the deny button needs this DoClick function, and that would mean accessing a value in a different scope
+		local button_close = pop_up.btnClose
 		
-		pop_up:Remove()
-		forward_response(-1)
+		button_close:SetText("Deny")
+		button_close:SetTextColor(color_white)
+		
+		function button_close:DoClick()
+			pop_up:Remove()
+			forward_response(-1)
+		end
+		
+		function button_close:Paint(w, h)
+			if self.Depressed or self:IsSelected() or self:GetToggle() then fl_surface_SetDrawColor(color_expression) 
+			elseif self.Hovered then fl_surface_SetDrawColor(color_dark_baseboard)
+			else fl_surface_SetDrawColor(color_dark_button) end
+			
+			fl_surface_DrawRect(0, 2, w, h - 4)
+		end
+	
+	----block button, reuses the maximize button
+	do
+		local button_block = pop_up.btnMaxim
+		
+		button_block:SetEnabled(true)
+		button_block:SetFont("DermaDefaultBold")
+		button_block:SetText("BLOCK")
+		button_block:SetTextColor(color_white)
+		
+		function button_block:DoClick()
+			game_blocks[requester_index] = true
+			
+			if block_form then game_blocks_check_boxes[requester_index]:SetChecked(false) end
+			
+			pop_up:Remove()
+			forward_response(-3)
+		end
+		
+		function button_block:Paint(w, h)
+			if self.Depressed or self:IsSelected() or self:GetToggle() then fl_surface_SetDrawColor(color_expression) 
+			elseif self.Hovered then fl_surface_SetDrawColor(color_expression_excited)
+			else fl_surface_SetDrawColor(color_expression) end
+			
+			fl_surface_DrawRect(0, 2, w, h - 4)
+		end
 	end
 	
-	button_close.Paint = function(self, w, h)
-		if self.Depressed or self:IsSelected() or self:GetToggle() then fl_surface_SetDrawColor(color_expression) 
-		elseif self.Hovered then fl_surface_SetDrawColor(color_dark_baseboard)
-		else fl_surface_SetDrawColor(color_dark_button) end
+	----accept button
+	do
+		local button_accept = vgui.Create("DButton", pop_up)
 		
-		fl_surface_DrawRect(0, 2, w, h - 4)
+		button_accept:SetPos(margin, pop_up_button_accept_y)
+		button_accept:SetSize(pop_up_button_accept_w, pop_up_button_accept_h)
+		button_accept:SetText("Accept")
+		button_accept:SetTextColor(color_white)
+		
+		button_accept.Paint = button_paint
+		
+		function button_accept:DoClick()
+			pop_up:Remove()
+			forward_response(1)
+		end
 	end
 	
-	--block button, reuses the maximize button
-	local button_block = pop_up.btnMaxim
-	
-	button_block:SetEnabled(true)
-	button_block:SetFont("DermaDefaultBold")
-	button_block:SetText("BLOCK")
-	button_block:SetTextColor(color_white)
-	
-	button_block.DoClick = function(self)
-		game_blocks[requester_index] = true
+	----deny button
+	do
+		local button_deny = vgui.Create("DButton", pop_up)
 		
-		if block_form then game_blocks_check_boxes[requester_index]:SetChecked(false) end
+		button_deny:SetPos(pop_up_button_deny_x, pop_up_button_accept_y)
+		button_deny:SetSize(pop_up_button_accept_w, pop_up_button_accept_h)
+		button_deny:SetText("Deny")
+		button_deny:SetTextColor(color_white)
 		
-		pop_up:Remove()
-		forward_response(-3)
+		button_deny.DoClick = button_close.DoClick
+		button_deny.Paint = button_paint
 	end
 	
-	button_block.Paint = function(self, w, h)
-		if self.Depressed or self:IsSelected() or self:GetToggle() then fl_surface_SetDrawColor(color_expression) 
-		elseif self.Hovered then fl_surface_SetDrawColor(color_expression_excited)
-		else fl_surface_SetDrawColor(color_expression) end
+	----info box
+	do
+		local panel_info = vgui.Create("DPanel", pop_up)
+		local panel_info_text = requester_name .. " has invited you to join their game.\n\nAccepting will grant them more access with Expression 2,\nbut you can revoke their access at anytime by using the context menu."
 		
-		fl_surface_DrawRect(0, 2, w, h - 4)
+		panel_info:SetPos(margin, pop_up_panel_info_y)
+		panel_info:SetSize(pop_up_panel_info_w, pop_up_panel_info_h)
+		
+		function panel_info:Paint(w, h)
+			--todo: optimize
+			local time_left = math.ceil(held_requests[1][2] - CurTime())
+			
+			draw.DrawText(panel_info_text .. "\n\nThis invite expires in " .. time_left .. (time_left == 1 and " second." or " seconds."), "DermaDefault", w * 0.5, margin, color_white, TEXT_ALIGN_CENTER)
+		end
 	end
 	
-	--accept button
-	local button_accept = vgui.Create("DButton", pop_up)
-	
-	button_accept:SetPos(margin, pop_up_button_accept_y)
-	button_accept:SetSize(pop_up_button_accept_w, pop_up_button_accept_h)
-	button_accept:SetText("Accept")
-	button_accept:SetTextColor(color_white)
-	
-	button_accept.DoClick = function(self)
-		pop_up:Remove()
-		forward_response(1)
-	end
-	
-	button_accept.Paint = button_paint
-	
-	--deny button
-	local button_deny = vgui.Create("DButton", pop_up)
-	
-	button_deny:SetPos(pop_up_button_deny_x, pop_up_button_accept_y)
-	button_deny:SetSize(pop_up_button_accept_w, pop_up_button_accept_h)
-	button_deny:SetText("Deny")
-	button_deny:SetTextColor(color_white)
-	
-	button_deny.DoClick = button_close.DoClick
-	button_deny.Paint = button_paint
-	
-	--info box
-	local panel_info = vgui.Create("DPanel", pop_up)
-	local panel_info_text = requester:Nick() .. " has invited you to join their game.\n\nAccepting will grant them more access with Expression 2,\nbut you can revoke their access at anytime by using the context menu."
-	
-	panel_info:SetPos(margin, pop_up_panel_info_y)
-	panel_info:SetSize(pop_up_panel_info_w, pop_up_panel_info_h)
-	
-	panel_info.Paint = function(self, w, h)
-		if not held_requests or not held_requests[1] then self:Remove() end
-		
-		local time_left = math.ceil(held_requests[1][2] - CurTime())
-		
-		draw.DrawText(panel_info_text .. "\n\nThis invite expires in " .. time_left .. (time_left == 1 and " second." or " seconds."), "DermaDefault", w * 0.5, margin, color_white, TEXT_ALIGN_CENTER)
-	end
-	
-	pop_up.Paint = function(self, w, h)
+	function pop_up:Paint(w, h)
 		fl_surface_SetDrawColor(color_dark)
 		fl_surface_DrawRect(0, 0, w, h)
 		
@@ -717,13 +852,13 @@ open_request_gui = function()
 	end
 	
 	--we have to modify the close and maxim buttons here, as they are changed in this function
-	pop_up.PerformLayout = function(self)
+	function pop_up:PerformLayout(w, h)
 		pop_up_layout(self)
 		
-		self.btnClose:SetPos(self:GetWide() - 52, 0)
+		self.btnClose:SetPos(w - 52, 0)
 		self.btnClose:SetWide(48, 24)
 		
-		self.btnMaxim:SetPos(self:GetWide() - 104, 0)
+		self.btnMaxim:SetPos(w - 104, 0)
 		self.btnMaxim:SetSize(48, 24)
 	end
 	
@@ -737,15 +872,28 @@ local function request_full_sync()
 end
 
 local function show_game_bar(state, finish)
-	if game_bar_animating then return end
+	print("show_game_bar ran", state, finish)
+	debug.Trace()
+	
+	if game_bar_animating then
+		me:PrintMessage(HUD_PRINTTALK, "game bar was animating, returning", state)
+		
+		return
+	end
 	
 	if state then
+		print("show")
+		
 		if not game_bar_open then
 			--open
 			game_bar_animating = true
 			game_bar_open = true
 			
+			print("show passed")
+			
 			local game_bar_animation = game_bar:NewAnimation(game_bar_animation_duration, 0, game_bar_animation_curve, function()
+				print("show finish")
+				
 				game_bar_animating = false
 				
 				game_bar:SetPos(game_bar_x, game_bar_y)
@@ -754,9 +902,15 @@ local function show_game_bar(state, finish)
 				if finish then finish() end
 			end)
 			
-			game_bar_animation.Think = function(self, panel, fraction) game_bar:SetPos(game_bar_x, scr_h - fraction * game_bar_h) end
-		end
+			function game_bar_animation:Think(panel, fraction)
+				print("show animating")
+				
+				game_bar:SetPos(game_bar_x, scr_h - fraction * game_bar_h)
+			end
+		else print("game bar was open, not opening") end
 	else
+		print("hide")
+		
 		if game_bar_open then
 			--close
 			game_bar_animating = true
@@ -771,8 +925,8 @@ local function show_game_bar(state, finish)
 				if game_bar_desired then show_game_bar(true) end
 			end)
 			
-			game_bar_animation.Think = function(self, panel, fraction) game_bar:SetPos(game_bar_x, game_bar_y + fraction * game_bar_h) end
-		end
+			function game_bar_animation:Think(panel, fraction) game_bar:SetPos(game_bar_x, game_bar_y + fraction * game_bar_h) end
+		else print("game bar wasn't open, not closing") end
 	end
 end
 
@@ -785,27 +939,20 @@ end
 calc_vars()
 
 --concommand
-concommand.Add("wire_game_core_debug", function()
+concommand.Add("wire_game_core_reload", function()
 	--this stuff is also being used for autoreload, but is safe to run anyways
 	local hooks = hook.GetTable()
 	local world_panel = vgui.GetWorldPanel()
 	
-	context_menu = world_panel:Find("ContextMenu")
+	local found_context_menu = world_panel:Find("ContextMenu")
+	local found_game_bar = world_panel:Find("WireGameCoreGameBar")
+	local found_pop_up = world_panel:Find("WireGameCoreRequest")
 	
-	--generate_settings_form(world_panel:Find("WireGameCoreSettings"))
-	local test = world_panel:Find("WireGameCoreRequest")
+	if found_game_bar then found_game_bar:Remove() end
+	if found_pop_up then found_pop_up:Remove() end
 	
-	if test then test:Remove() end
-	
-	hooks.ContextMenuCreated.wire_game_core(context_menu)
+	hooks.ContextMenuCreated.wire_game_core(found_context_menu) --my old method, but now we have to recreate it when working with desktop icons
 	hooks.InitPostEntity.wire_game_core()
-	print("entities", me, me_index)
-	print("held requests")
-	PrintTable(held_requests, 1)
-	print("game_blocks")
-	PrintTable(game_blocks)
-	print("game settings")
-	PrintTable(game_settings)
 end, nil, "Debug for game core, will be removed,")
 
 concommand.Add("wire_game_core_debug_cogs", function()
@@ -819,7 +966,7 @@ concommand.Add("wire_game_core_debug_cogs", function()
 	cog_panel:Dock(FILL)
 	cog_panel:DockMargin(4, 4, 4, 4)
 	
-	cog_panel.Paint = function(self, w, h)
+	function cog_panel:Paint(w, h)
 		fl_surface_SetDrawColor(color_dark)
 		fl_surface_DrawRect(0, 0, w, h)
 		
@@ -830,26 +977,13 @@ concommand.Add("wire_game_core_debug_cogs", function()
 	frame:MakePopup()
 end, nil, "Debug for game core, used to debug the cog algorithm.")
 
-concommand.Add("wire_game_core_debug_browser", function()
-	browser = vgui.Create("DFrame")
-	
-	browser:SetDraggable(false)
-	browser:SetPos(browser_x, browser_y)
-	browser:SetSize(browser_w, browser_h)
-	browser:SetTitle("Game Browser")
-	
-	browser.Paint = function(self, w, h)
-		fl_surface_SetDrawColor(color_dark)
-		fl_surface_DrawRect(0, 0, w, h)
+concommand.Add("wire_game_core_debug_rich", function(ply, command, args, text)
+	if game_master and game_bar then
+		local rich_text = game_bar.rich_text
 		
-		draw_cogs(game_bar_cogs)
-		
-		fl_surface_SetDrawColor(color_dark_header)
-		fl_surface_DrawRect(0, 0, w, header)
+		rich_text:AppendText("\n" .. text)
 	end
-	
-	browser:MakePopup()
-end, nil, "Debug for game core, used to develop the game browser.")
+end, nil, "Debug for game core, used to debug the cog algorithm.")
 
 --cvars
 cvars.AddChangeCallback("wire_game_core_request_duration", function() pop_up_duration = wire_game_core_request_duration:GetFloat() end)
@@ -861,16 +995,14 @@ hook.Add("CanProperty", "wire_game_core", active_game_inv)
 hook.Add("CanTool", "wire_game_core", active_game_inv)
 
 hook.Add("ContextMenuCreated", "wire_game_core", function(panel)
-	print("================= context menu create", panel)
-	
 	context_menu = panel
 	game_bar = vgui.Create("EditablePanel", GetHUDPanel(), "WireGameCoreGameBar")
-	
+	--RichText
 	game_bar:SetMouseInputEnabled(true)
 	game_bar:SetPos(game_bar_x, scr_h)
 	game_bar:SetSize(game_bar_w, game_bar_h)
 	
-	game_bar.Paint = function(self, w, h)
+	function game_bar:Paint(w, h)
 		fl_surface_SetDrawColor(color_dark)
 		fl_surface_DrawRect(0, 0, w, h)
 		
@@ -880,58 +1012,141 @@ hook.Add("ContextMenuCreated", "wire_game_core", function(panel)
 		fl_surface_DrawRect(0, 0, w, game_bar_header)
 	end
 	
-	local label_title = vgui.Create("DLabel", game_bar)
-	
-	label_title:Dock(TOP)
-	label_title:SetContentAlignment(5)
-	label_title:SetFont("CreditsText")
-	label_title:SetHeight(game_bar_header * 0.6)
-	label_title:SetText("Unknown Game")
-	game_bar.label_title = label_title
-	
-	local label_master = vgui.Create("DLabel", game_bar)
-	
-	label_master:Dock(TOP)
-	label_master:SetColor(color_dark_text)
-	label_master:SetContentAlignment(5)
-	label_master:SetHeight(game_bar_header * 0.4)
-	label_master:SetText("Unknown Host")
-	game_bar.label_master = label_master
-	
-	local button_leave = vgui.Create("DButton", game_bar)
-	
-	button_leave:SetPos(margin, game_bar_button_leave_y)
-	button_leave:SetSize(game_bar_button_leave_w, game_bar_button_leave_h)
-	button_leave:SetText("Leave Game")
-	button_leave:SetTextColor(color_button_text)
-	
-	button_leave.DoClick = function(self)
-		--idontwannaplayheavyanymore
-		net.Start("wire_game_core_leave")
-		net.SendToServer()
+	----label showing the game title
+	do
+		local label_title = vgui.Create("DLabel", game_bar)
+		
+		label_title:Dock(TOP)
+		label_title:SetContentAlignment(5)
+		label_title:SetFont("CreditsText")
+		label_title:SetHeight(game_bar_header * 0.6)
+		label_title:SetText("Unknown Game")
+		
+		game_bar.label_title = label_title
 	end
 	
-	local button_hide = vgui.Create("DButton", game_bar)
-	
-	button_hide:SetPos(margin, game_bar_button_hide_y)
-	button_hide:SetSize(game_bar_button_leave_w, game_bar_button_leave_h)
-	button_hide:SetText(game_bar_button_hide_phrases[player_visibility])
-	button_hide:SetTextColor(color_button_text)
-	
-	button_hide.DoClick = function(self)
-		player_visibility = player_visibility % 3 + 1
+	----label showing the host
+	do
+		local label_master = vgui.Create("DLabel", game_bar)
 		
-		adjust_player_visibility()
+		label_master:Dock(TOP)
+		label_master:SetColor(color_dark_text)
+		label_master:SetContentAlignment(5)
+		label_master:SetHeight(game_bar_header * 0.4)
+		label_master:SetText("Unknown Host")
 		
-		if player_visibility_button then player_visibility_button:SetText(game_bar_button_hide_phrases[player_visibility]) end
-		
-		self:SetText(game_bar_button_hide_phrases[player_visibility])
+		game_bar.label_master = label_master
 	end
 	
-	button_hide.Paint = button_paint
-	button_leave.Paint = button_paint
+	----rich text for the owner to give updates
+	do
+		local rich_text = vgui.Create("RichText", game_bar)
+		local rich_text_track = rich_text:Find("ScrollBar")
+		
+		rich_text:SetPos(game_bar_sidebar_w + margin, game_bar_header + margin)
+		rich_text:SetSize(game_bar_w - game_bar_sidebar_w - margin_double, game_bar_sidebar_h - margin_double)
+		
+		function rich_text:PerformLayout()
+			rich_text:SetBGColorEx(28, 28, 28, 192)
+			rich_text:SetFontInternal("DermaDefault")
+			
+			for index, child in pairs(rich_text_track:GetChildren()) do child:SetVisible(false) end
+		end
+		
+		game_bar.rich_text = rich_text
+	end
 	
-	game_bar.button_hide = button_hide
+	----scroll bar holding some buttons
+		local scroll_bar = vgui.Create("DScrollPanel", game_bar)
+		local scroll_bar_buttons = {}
+		local scroll_bar_track = scroll_bar:GetVBar()
+		
+		scroll_bar:SetPos(0, game_bar_header)
+		scroll_bar:SetSize(game_bar_sidebar_w, game_bar_sidebar_h)
+		scroll_bar_track:SetHideButtons(true)
+		
+		function scroll_bar:Paint(w, h)
+			fl_surface_SetDrawColor(color_dark_baseboard)
+			fl_surface_DrawRect(0, 0, w, h)
+		end
+		
+		function scroll_bar_track:Paint(w, h)
+			fl_surface_SetDrawColor(color_dark_track)
+			fl_surface_DrawRect(0, 0, w, h)
+		end
+		
+		function scroll_bar_track.btnGrip:Paint(w, h)
+			if self.Depressed then fl_surface_SetDrawColor(color_expression)
+			elseif self.Hovered then fl_surface_SetDrawColor(color_dark_button_hover)
+			else fl_surface_SetDrawColor(color_dark_button) end
+			
+			fl_surface_DrawRect(0, 0, w, h)
+		end
+	
+	----button to leave the game
+	do
+		local button_leave = vgui.Create("DButton", game_bar)
+		
+		button_leave:SetText("Leave Game")
+		button_leave:SetTextColor(color_button_text)
+		
+		function button_leave:DoClick()
+			--idontwannaplayheavyanymore
+			net.Start("wire_game_core_leave")
+			net.SendToServer()
+		end
+		
+		table.insert(scroll_bar_buttons, button_leave)
+	end
+	
+	----button to hide players
+	do
+		local button_hide = vgui.Create("DButton", game_bar)
+		
+		button_hide:SetText(game_bar_button_hide_phrases[player_visibility])
+		button_hide:SetTextColor(color_button_text)
+		
+		function button_hide:DoClick()
+			player_visibility = player_visibility % 3 + 1
+			
+			adjust_player_visibility()
+			
+			if player_visibility_button then player_visibility_button:SetText(game_bar_button_hide_phrases[player_visibility]) end
+			
+			self:SetText(game_bar_button_hide_phrases[player_visibility])
+		end
+		
+		game_bar.button_hide = button_hide
+		
+		table.insert(scroll_bar_buttons, button_hide)
+	end
+	
+	----button to do something
+	do
+		local button_undecided = vgui.Create("DButton", game_bar)
+		
+		button_undecided:SetText("Undecided")
+		button_undecided:SetTextColor(color_button_text)
+		
+		function button_undecided:DoClick()
+			self:SetText("FUCK YOU")
+			
+			timer.Remove("wire_game_core_button_undecided")
+			timer.Create("wire_game_core_button_undecided", 1, 0, function() if IsValid(self) then self:SetText("Undecided") end end)
+		end
+		
+		table.insert(scroll_bar_buttons, button_undecided)
+	end
+	
+	--add buttons to the sidebar
+	for index, button in ipairs(scroll_bar_buttons) do
+		scroll_bar:AddItem(button)
+		
+		button:Dock(TOP)
+		button:DockMargin(margin, margin, margin, 0)
+		
+		button.Paint = button_paint
+	end
 end)
 
 hook.Add("InitPostEntity", "wire_game_core", function()
@@ -940,7 +1155,7 @@ hook.Add("InitPostEntity", "wire_game_core", function()
 	
 	request_full_sync()
 	
-	local distance_alpha_max_alpha = 64
+	local distance_alpha_max_alpha = 16
 	local distance_alpha_max_distance = 512
 	local distance_alpha_min_distance = 128
 	
@@ -988,12 +1203,38 @@ hook.Add("InitPostEntity", "wire_game_core", function()
 			end
 		end
 	end)
+	
+	hook.Add("Think", "wire_game_core", function()
+		local alive = me:Alive()
+		local cur_time = CurTime()
+		local new_requests = {}
+		
+		--[[if alive ~= last_alive then
+			--show the bar while they are dead >:D
+			game_bar_desired = last_alive
+			last_alive = alive
+		end]] --needs testing
+		
+		for index, data in ipairs(held_requests) do
+			--can't use table.remove or it skips over indices
+			--1: master index, 2: expiration time, 3: marked for removal
+			local master_index = data[1]
+			
+			if cur_time < data[2] and not data[3] then table.insert(new_requests, data)
+			elseif index == 1 and pop_up then
+				pop_up:Remove()
+				forward_response(-2)
+			end
+		end
+		
+		held_requests = new_requests
+	end)
 end)
 
 hook.Add("OnContextMenuClose", "wire_game_core", function()
 	game_bar_desired = false
 	
-	game_bar:ParentToHUD()
+	game_bar:SetParent(GetHUDPanel())
 	game_bar:SetMouseInputEnabled(false)
 	
 	if game_master_index then
@@ -1010,45 +1251,20 @@ hook.Add("OnContextMenuOpen", "wire_game_core", function()
 	
 	timer.Remove("wire_game_core_game_bar_close")
 	
-	if game_master_index then
-		--
-		show_game_bar(true)
-	end
+	if game_master_index then show_game_bar(true) end
 end)
 
 hook.Add("OnScreenSizeChanged", "wire_game_core", calc_vars)
 hook.Add("PlayerNoClip", "wire_game_core", function(ply, desire) if game_masters[ply:EntIndex()] and desire then return false end end)
 hook.Add("PopulateToolMenu", "wire_game_core", function() spawnmenu.AddToolMenuOption("Utilities", "User", "WireGameCore", "E2 Game Core", "", "", generate_settings_form) end)
 
+--not yet, I still want to test
 --hook.Add("SpawnMenuOpen", "wire_game_core", function() if game_master_index then return false end end)
 
 hook.Add("ShouldCollide", "wire_game_core", function(ent_1, ent_2)
 	if ent_1:IsPlayer() and ent_2:IsPlayer() and game_masters[ent_1:EntIndex()] ~= game_masters[ent_2:EntIndex()] then return false end
 	
 	return true
-end)
-
-hook.Add("Think", "wire_game_core", function()
-	local cur_time = CurTime()
-	local new_requests = {}
-	
-	for index, data in ipairs(held_requests) do
-		--can't use table.remove or it skips over indices
-		--1: master index, 2: expiration time, 3: marked for removal
-		local master_index = data[1]
-		
-		if cur_time < data[2] and not data[3] then table.insert(new_requests, data)
-		elseif index == 1 and pop_up then
-			print("expire")
-			
-			pop_up:Remove()
-			forward_response(-2)
-		else print("time out") end
-	end
-	
-	--for master_index, panel in pairs(game_blocks_check_boxes) do if not IsValid(Entity(master_index)) then panel:Remove() end end
-	
-	held_requests = new_requests
 end)
 
 --net
@@ -1080,11 +1296,18 @@ end)
 net.Receive("wire_game_core_join", function()
 	game_bar_desired = true
 	game_master_index = net.ReadUInt(8)
-	weapon_class = net.ReadString()
+	game_master = Entity(game_master_index)
+	local rich_text = game_bar.rich_text
+	
+	--reading when nothing is there scares me, so lets check
+	if net.ReadBool() then weapon_class = net.ReadString() end
 	
 	--let's cache the player so we don't have to keep fetching them
-	game_master = Entity(game_master_index)
 	
+	rich_text:SetText("")
+	
+	adjust_player_visibility()
+	game_bar_message(false, {255, 255, 128}, "You joined " .. game_master:Nick() .. "'s game.")
 	show_game_bar(true, function()
 		timer.Create("wire_game_core_game_bar_close", 5, 1, function()
 			--short timers are okay by my standard
@@ -1093,8 +1316,6 @@ net.Receive("wire_game_core_join", function()
 			show_game_bar(false)
 		end)
 	end)
-	
-	adjust_player_visibility()
 end)
 
 net.Receive("wire_game_core_leave", function()
@@ -1106,14 +1327,14 @@ net.Receive("wire_game_core_leave", function()
 		local weapon = me:GetWeapon(weapon_class)
 		
 		--it's fine to do SelectWeapon like this, I swear
-		--timer.Simple(0.1, function() if IsValid(weapon) then input.SelectWeapon(weapon) end end)
+		--no, its not
+		timer.Simple(0, function() if IsValid(weapon) then input.SelectWeapon(weapon) end end)
 		
 		game_master = nil
 		game_master_index = nil
 		weapon_class = nil
 	end
 	
-	print("we left")
 	adjust_player_visibility(1)
 end)
 
@@ -1131,40 +1352,29 @@ net.Receive("wire_game_core_masters", function()
 		
 		ply:CollisionRulesChanged()
 	end
-	
-	PrintTable(game_masters, 1)
 end)
 
 net.Receive("wire_game_core_request", function()
 	local requests = net.ReadTable()[me_index]
 	
 	if requests then
-		--let's make it curtime, because server lag also delays the respone
 		local cur_time = CurTime()
-		local held_request_count = #held_requests
 		
-		--refresh times
+		--refresh times and remove the index from the requests we received if we did
 		for index, data in pairs(held_requests) do
-			--don't re-add the entry, just renew the time
 			local master_index = data[1]
 			
 			if requests[master_index] then
-				me:PrintMessage(HUD_PRINTTALK, "Refreshing: " .. master_index .. " at " .. index)
-				
 				held_requests[index][2] = cur_time + pop_up_duration
 				requests[master_index] = nil
 			end
 		end
 		
-		for master_index in pairs(requests) do
-			me:PrintMessage(HUD_PRINTTALK, "Updating " .. master_index .. " with " .. #held_requests .. " existing")
-			
-			held_requests[#held_requests + 1] = {master_index, cur_time + pop_up_duration}
-		end
+		--add the new requests to the request queue
+		for master_index in pairs(requests) do table.insert(held_requests, {master_index, cur_time + pop_up_duration}) end
 		
-		PrintTable(held_requests, 1)
-		
-		if held_request_count == 0 then open_request_gui() end
+		--if they don't have a request open, open the gui
+		if not pop_up then open_request_gui() end
 	end
 end)
 
@@ -1177,21 +1387,25 @@ end)
 net.Receive("wire_game_core_sync", function()
 	local received_settings = net.ReadTable()
 	
-	table.Merge(game_settings, received_settings)
+	--not sufficient! we have yet to cull unchanged information, so we need to set the table's index
+	--table.Merge(game_settings, received_settings)
+	
+	for master_index, settings in pairs(received_settings) do 
+		if settings == false then game_settings[master_index] = nil
+		else game_settings[master_index] = settings end
+	end
 	
 	if held_requests[1] then
 		local cur_time = CurTime()
 		
-		--make all 
-		for index, data in ipairs(held_requests) do
-			--can't use table.remove or it skips over indices
-			if not game_settings[data[1]].active then held_requests[index][3] = true end
-		end
+		--make all requests for closing games expire
+		for index, data in ipairs(held_requests) do if not game_settings[data[1]] then held_requests[index][3] = true end end
 	end
 	
+	if IsValid(browser) then browser.scroll_bar:GenerateGameEntries() end
 	if game_master_index and received_settings[game_master_index] then update_game_bar() end
 end)
 
 --auto reload, will be removed in the future
-if WireGameCore then RunConsoleCommand("wire_game_core_debug")
+if WireGameCore then RunConsoleCommand("wire_game_core_reload")
 else WireGameCore = true end

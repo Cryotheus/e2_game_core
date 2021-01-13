@@ -3,28 +3,31 @@ AddCSLuaFile("shared.lua")
 include("shared.lua")
 
 ENT.DisableDuplicator = true
-ENT.DoNotDuplicate = true
+--ENT.DoNotDuplicate = true
 ENT.FOV = 0
 ENT.Viewers = {}
 
 function ENT:Initialize() self:SetNoDraw(true) end
 
+function ENT:NewPosBezierLerp(duration, end_position, control_position, start_position)
+	--start_position is optional
+	self:SetPosBezierLerping(true)
+	self:SetPosControl(control_position)
+	self:SetPosDuration(duration)
+	self:SetPosEnd(end_position)
+	self:SetPosLerping(false)
+	self:SetPosStart(start_position or self:GetPos())
+	self:SetPosStartTime(CurTime())
+end
+
 function ENT:NewPosLerp(duration, end_position, start_position)
 	--start_position is optional
+	self:SetPosBezierLerping(false)
 	self:SetPosDuration(duration)
 	self:SetPosEnd(end_position)
 	self:SetPosLerping(true)
 	self:SetPosStart(start_position or self:GetPos())
 	self:SetPosStartTime(CurTime())
-end
-
-function ENT:PerformPosLerp(age)
-	--called every tick when the camera has a lerp going
-	if age < self.NWPosDuration then self:SetPos(LerpVector(age / self.NWPosDuration, self.NWPosStart, self.NWPosEnd))
-	else
-		self:SetPos(self.NWPosEnd)
-		self:SetPosLerping(false)
-	end
 end
 
 function ENT:SetupDefaultData()
