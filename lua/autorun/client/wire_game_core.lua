@@ -37,60 +37,59 @@ local open_request_gui
 	local color_game_indicator = Color(192, 255, 192)
 	local color_ghost = Color(255, 255, 255, 127)
 
---render parameters
-local block_form
-local button_reload
-local browser
-local browser_baseboard_h
-local browser_button_h
-local browser_h
-local browser_icon_material = Material("vgui/wire_game_core/icon.png")
-local browser_icon_size
-local browser_margin = 100
-local browser_w
-local browser_x
-local browser_y
-local cog_size
-local cog_texture = surface.GetTextureID("expression 2/cog")
-local context_menu
-local debug_panel_cogs
-local game_bar
-local player_visibility_function
-local game_bar_button_hide_phrases = {"Hide Excluded Players", "Hide All Players", "Reveal Players"}
-local game_bar_button_hide_y
-local game_bar_button_leave_h
-local game_bar_button_leave_w
-local game_bar_button_leave_y
-local game_bar_button_undecided_y
-local game_bar_cogs
-local game_bar_desired = false
-local game_bar_h
-local game_bar_header = 36
-local game_bar_open = false
-local game_bar_w
-local game_bar_x
-local game_bar_y
-local header = 24
-local margin = 4
-local margin_double = margin * 2
-local margin_half = margin * 0.5
-local player_visibility_button
-local pop_up
-local pop_up_baseboard_h
-local pop_up_baseboard_y
-local pop_up_button_accept_h
-local pop_up_button_accept_w
-local pop_up_button_accept_y
-local pop_up_button_deny_x
-local pop_up_cog_size
-local pop_up_cogs
-local pop_up_panel_info_h
-local pop_up_panel_info_w
-local pop_up_panel_info_y
-local pop_up_h
-local pop_up_w
-local scr_h
-local scr_w
+----render parameters
+	local block_form
+	local button_reload
+	local browser
+	local browser_baseboard_h
+	local browser_button_h
+	local browser_h
+	local browser_icon_material = Material("vgui/wire_game_core/icon.png")
+	local browser_icon_size
+	local browser_margin = 100
+	local browser_w
+	local browser_x
+	local browser_y
+	local cog_size
+	local cog_texture = surface.GetTextureID("expression 2/cog")
+	local context_menu
+	local debug_panel_cogs
+	local game_bar
+	local player_visibility_function
+	local game_bar_button_hide_y
+	local game_bar_button_leave_h
+	local game_bar_button_leave_w
+	local game_bar_button_leave_y
+	local game_bar_button_undecided_y
+	local game_bar_cogs
+	local game_bar_desired = false
+	local game_bar_h
+	local game_bar_header = 36
+	local game_bar_open = false
+	local game_bar_w
+	local game_bar_x
+	local game_bar_y
+	local header = 24
+	local margin = 4
+	local margin_double = margin * 2
+	local margin_half = margin * 0.5
+	local player_visibility_button
+	local pop_up
+	local pop_up_baseboard_h
+	local pop_up_baseboard_y
+	local pop_up_button_accept_h
+	local pop_up_button_accept_w
+	local pop_up_button_accept_y
+	local pop_up_button_deny_x
+	local pop_up_cog_size
+	local pop_up_cogs
+	local pop_up_panel_info_h
+	local pop_up_panel_info_w
+	local pop_up_panel_info_y
+	local pop_up_h
+	local pop_up_w
+	local scr_h
+	local scr_w
 
 --constants
 local player_visibility_functions = {
@@ -155,6 +154,8 @@ local player_visibility_set_functions = {
 		end
 	end
 }
+
+local translate = include("wire_game_core/translate.lua")
 
 --convars
 local wire_game_core_request_duration = CreateClientConVar("wire_game_core_request_duration", "30", true, false, "How long should a request last before expiring", 10, 60)
@@ -433,8 +434,8 @@ local function calc_vars()
 	--reset the lists value
 	local existing_list = list.GetForEdit("DesktopWindows")
 	local window_data = {
-		title		= "Game Browser", --text under the icon
-		icon		= "icon64/e2_game_core.png", --path to png, preferrably in icon64
+		title		= "#wire_game_core.browser.title", --text under the icon
+		icon		= "icon64/game_core_browser_icon.png", --path to png, preferrably in icon64
 		width		= browser_w,
 		height		= browser_h,
 		onewindow	= true, --if the window created is already opened, just recenter it instead of recreating it
@@ -498,19 +499,19 @@ local function game_bar_message(new_line, ...)
 	if new_line then rich_text:AppendText("\n") end
 	
 	for index, value in ipairs({...}) do
-		if type(value) == "string" then rich_text:AppendText(value)
+		if isstring(value) then rich_text:AppendText(value)
 		else rich_text:InsertColorChange(value[1], value[2], value[3], 255) end
 	end
 end
 
 generate_block_form = function()
 	block_form:Clear()
-	block_form:Help("Uncheck the box to block a player from sending game requests to you.")
+	block_form:Help("#wire_game_core.settings.blocker.info")
 	
 	button_reload = vgui.Create("DButton", block_form)
 	button_reload.DoClick = generate_block_form
 	
-	button_reload:SetText("Regenerate List")
+	button_reload:SetText("#wire_game_core.settings.blocker.reload")
 	
 	block_form:AddItem(button_reload)
 	
@@ -521,12 +522,12 @@ local function generate_settings_form(form)
 	settings_form = form
 	
 	settings_form:Clear()
-	settings_form:Help("Player visibility while in a game")
+	settings_form:Help("#wire_game_core.settings.visibility")
 	settings_form:SetName("WireGameCoreSettings")
 	
 	player_visibility_button = vgui.Create("DButton", settings_form)
 	
-	player_visibility_button:SetText(game_bar_button_hide_phrases[player_visibility])
+	player_visibility_button:SetText("#wire_game_core.settings.visibility." .. player_visibility)
 	settings_form:AddItem(player_visibility_button)
 	
 	function player_visibility_button:DoClick()
@@ -534,14 +535,14 @@ local function generate_settings_form(form)
 		
 		adjust_player_visibility()
 		
-		game_bar.button_hide:SetText(game_bar_button_hide_phrases[player_visibility])
-		self:SetText(game_bar_button_hide_phrases[player_visibility])
+		game_bar.button_hide:SetText("#wire_game_core.settings.visibility." .. player_visibility)
+		self:SetText("#wire_game_core.settings.visibility." .. player_visibility)
 	end
 	
 	--block form, holds a check list of players
 	block_form = vgui.Create("DForm", settings_form)
 	
-	block_form:SetName("Blocked Players")
+	block_form:SetName("#wire_game_core.settings.blocker.title")
 	settings_form:AddItem(block_form)
 	
 	generate_block_form()
@@ -553,7 +554,7 @@ open_browser = function(icon, window)
 	browser:SetContentAlignment(8)
 	browser:SetDraggable(false)
 	browser:SetSize(browser_w, browser_h)
-	browser:SetTitle("Game Browser")
+	browser:SetTitle("#wire_game_core.browser.title")
 	
 	function browser:OnClose() browser = nil end
 	
@@ -595,7 +596,7 @@ open_browser = function(icon, window)
 		--label_info:SetFont("Trebuchet24")
 		label_info:SetPos(browser_icon_size + margin * 2, margin + header)
 		label_info:SetSize(browser_w - browser_icon_size - 3 * margin, browser_icon_size)
-		label_info:SetText("View active games made with Wire Expression 2 Game Core below. Open games can be joined from here without an invite. If you'd like to create your own games with Expression 2, search up \"game\" in the E2Helper for a list of available functions. Alternatively, a list of functions will be available on the github. You can get to the github from the workshop page (the icon to the left of this text will link you to the workshop page).\n\nIf you'd like to make your game open so anyone can join it, you can use the gameSetJoinable function to do so. Alternatively, you can leave your game closed but send invites with the gameRequest function. Do note that this function has a cool down")
+		label_info:SetText("#wire_game_core.browser.info")
 		label_info:SetWrap(true)
 	end
 	
@@ -694,7 +695,7 @@ open_browser = function(icon, window)
 					local label_host = vgui.Create("DLabel", button)
 					
 					label_host:SetContentAlignment(5)
-					label_host:SetText(master_valid and master:Nick() or "Invalid")
+					label_host:SetText(master_valid and master:Nick() or "#wire_game_core.browser.invalid")
 					label_host:SetTextColor(color_dark_text)
 				
 				--make it so players can join the game if it's open
@@ -739,17 +740,17 @@ open_request_gui = function()
 	local requester_index = held_requests[1][1]
 	local requester_name = Entity(requester_index):Nick()
 	
-	pop_up:SetTitle("Game request from " .. requester_name)
+	pop_up:SetTitle(translate("wire_game_core.request.title", {name = requester_name}))
 	pop_up:SetSize(pop_up_w, pop_up_h)
 	
-	--we won't need the minimize button, but we'll keep the maximize and close to repurpose them
+	--we won't need the minimize button, but we'll keep the maximize and close buttons because we repurpose them
 	pop_up.btnMinim:SetVisible(false)
 	
 	--close and deny button, reuses the close button
 	----we can't put it in a do end block because the deny button needs this DoClick function, and that would mean accessing a value in a different scope
 		local button_close = pop_up.btnClose
 		
-		button_close:SetText("Deny")
+		button_close:SetText("#wire_game_core.request.deny")
 		button_close:SetTextColor(color_white)
 		
 		function button_close:DoClick()
@@ -771,7 +772,7 @@ open_request_gui = function()
 		
 		button_block:SetEnabled(true)
 		button_block:SetFont("DermaDefaultBold")
-		button_block:SetText("BLOCK")
+		button_block:SetText("#wire_game_core.request.block")
 		button_block:SetTextColor(color_white)
 		
 		function button_block:DoClick()
@@ -798,7 +799,7 @@ open_request_gui = function()
 		
 		button_accept:SetPos(margin, pop_up_button_accept_y)
 		button_accept:SetSize(pop_up_button_accept_w, pop_up_button_accept_h)
-		button_accept:SetText("Accept")
+		button_accept:SetText("#wire_game_core.request.accept")
 		button_accept:SetTextColor(color_white)
 		
 		button_accept.Paint = button_paint
@@ -815,7 +816,7 @@ open_request_gui = function()
 		
 		button_deny:SetPos(pop_up_button_deny_x, pop_up_button_accept_y)
 		button_deny:SetSize(pop_up_button_accept_w, pop_up_button_accept_h)
-		button_deny:SetText("Deny")
+		button_deny:SetText("#wire_game_core.request.deny")
 		button_deny:SetTextColor(color_white)
 		
 		button_deny.DoClick = button_close.DoClick
@@ -825,16 +826,26 @@ open_request_gui = function()
 	----info box
 	do
 		local panel_info = vgui.Create("DPanel", pop_up)
-		local panel_info_text = requester_name .. " has invited you to join their game.\n\nAccepting will grant them more access with Expression 2,\nbut you can revoke their access at anytime by using the context menu."
+		local panel_info_text
 		
 		panel_info:SetPos(margin, pop_up_panel_info_y)
 		panel_info:SetSize(pop_up_panel_info_w, pop_up_panel_info_h)
 		
 		function panel_info:Paint(w, h)
-			--todo: optimize
 			local time_left = math.ceil(held_requests[1][2] - CurTime())
 			
-			draw.DrawText(panel_info_text .. "\n\nThis invite expires in " .. time_left .. (time_left == 1 and " second." or " seconds."), "DermaDefault", w * 0.5, margin, color_white, TEXT_ALIGN_CENTER)
+			if self.TimeLeft ~= time_left then
+				panel_info_text = translate("wire_game_core.request.info", {
+					name = requester_name,
+					time = time_left,
+					unit = time_left == 1 and translate("wire_game_core.units.second") or translate("wire_game_core.units.seconds")
+				})
+				
+				self.TimeLeft = time_left
+			end
+			
+			--not localized because we need to do special stuff
+			draw.DrawText(panel_info_text, "DermaDefault", w * 0.5, margin, color_white, TEXT_ALIGN_CENTER)
 		end
 	end
 	
@@ -872,28 +883,15 @@ local function request_full_sync()
 end
 
 local function show_game_bar(state, finish)
-	print("show_game_bar ran", state, finish)
-	debug.Trace()
-	
-	if game_bar_animating then
-		me:PrintMessage(HUD_PRINTTALK, "game bar was animating, returning", state)
-		
-		return
-	end
+	if game_bar_animating then return end
 	
 	if state then
-		print("show")
-		
 		if not game_bar_open then
 			--open
 			game_bar_animating = true
 			game_bar_open = true
 			
-			print("show passed")
-			
 			local game_bar_animation = game_bar:NewAnimation(game_bar_animation_duration, 0, game_bar_animation_curve, function()
-				print("show finish")
-				
 				game_bar_animating = false
 				
 				game_bar:SetPos(game_bar_x, game_bar_y)
@@ -902,15 +900,9 @@ local function show_game_bar(state, finish)
 				if finish then finish() end
 			end)
 			
-			function game_bar_animation:Think(panel, fraction)
-				print("show animating")
-				
-				game_bar:SetPos(game_bar_x, scr_h - fraction * game_bar_h)
-			end
-		else print("game bar was open, not opening") end
+			function game_bar_animation:Think(panel, fraction) game_bar:SetPos(game_bar_x, scr_h - fraction * game_bar_h) end
+		end
 	else
-		print("hide")
-		
 		if game_bar_open then
 			--close
 			game_bar_animating = true
@@ -926,7 +918,7 @@ local function show_game_bar(state, finish)
 			end)
 			
 			function game_bar_animation:Think(panel, fraction) game_bar:SetPos(game_bar_x, game_bar_y + fraction * game_bar_h) end
-		else print("game bar wasn't open, not closing") end
+		end
 	end
 end
 
@@ -997,7 +989,7 @@ hook.Add("CanTool", "wire_game_core", active_game_inv)
 hook.Add("ContextMenuCreated", "wire_game_core", function(panel)
 	context_menu = panel
 	game_bar = vgui.Create("EditablePanel", GetHUDPanel(), "WireGameCoreGameBar")
-	--RichText
+	
 	game_bar:SetMouseInputEnabled(true)
 	game_bar:SetPos(game_bar_x, scr_h)
 	game_bar:SetSize(game_bar_w, game_bar_h)
@@ -1087,7 +1079,7 @@ hook.Add("ContextMenuCreated", "wire_game_core", function(panel)
 	do
 		local button_leave = vgui.Create("DButton", game_bar)
 		
-		button_leave:SetText("Leave Game")
+		button_leave:SetText("#wire_game_core.bar.leave")
 		button_leave:SetTextColor(color_button_text)
 		
 		function button_leave:DoClick()
@@ -1103,7 +1095,7 @@ hook.Add("ContextMenuCreated", "wire_game_core", function(panel)
 	do
 		local button_hide = vgui.Create("DButton", game_bar)
 		
-		button_hide:SetText(game_bar_button_hide_phrases[player_visibility])
+		button_hide:SetText("#wire_game_core.settings.visibility." .. player_visibility)
 		button_hide:SetTextColor(color_button_text)
 		
 		function button_hide:DoClick()
@@ -1111,9 +1103,9 @@ hook.Add("ContextMenuCreated", "wire_game_core", function(panel)
 			
 			adjust_player_visibility()
 			
-			if player_visibility_button then player_visibility_button:SetText(game_bar_button_hide_phrases[player_visibility]) end
+			if player_visibility_button then player_visibility_button:SetText("#wire_game_core.settings.visibility." .. player_visibility) end
 			
-			self:SetText(game_bar_button_hide_phrases[player_visibility])
+			self:SetText("#wire_game_core.settings.visibility." .. player_visibility)
 		end
 		
 		game_bar.button_hide = button_hide
@@ -1302,8 +1294,6 @@ net.Receive("wire_game_core_join", function()
 	--reading when nothing is there scares me, so lets check
 	if net.ReadBool() then weapon_class = net.ReadString() end
 	
-	--let's cache the player so we don't have to keep fetching them
-	
 	rich_text:SetText("")
 	
 	adjust_player_visibility()
@@ -1326,8 +1316,7 @@ net.Receive("wire_game_core_leave", function()
 	if weapon_class then
 		local weapon = me:GetWeapon(weapon_class)
 		
-		--it's fine to do SelectWeapon like this, I swear
-		--no, its not
+		--uggghhhhh predicted BULLSHit
 		timer.Simple(0, function() if IsValid(weapon) then input.SelectWeapon(weapon) end end)
 		
 		game_master = nil

@@ -9,9 +9,6 @@ util.AddNetworkString("wire_game_core_request")
 util.AddNetworkString("wire_game_core_sounds")
 util.AddNetworkString("wire_game_core_sync")
 
-resource.AddFile("materials/icon64/game_core_browser_icon.png") --used for the context menu icon, first version
-resource.AddFile("materials/vgui/wire_game_core/icon.png") --used for the icon in the game browsers
-
 --misc. ungrouped
 --tables
 local entity_meta = FindMetaTable("Entity")
@@ -111,7 +108,7 @@ local ply_settings = {}			--y for restoring the player;					k: player index,		v:
 	
 	--function for pushing the player when they press use https://steamcommunity.com/sharedfiles/filedetails/?id=293535327
 	local pac_present = pace and true or false
-	local push_mod_hook = PushModHook_GameCore or hooks.KeyPress["ussy ussy ur a pussy"]
+	local push_mod_hook = PushModHook_GameCore or hooks.KeyPress and hooks.KeyPress["ussy ussy ur a pussy"] or nil
 	local ulib_teams = ULXUTeamSpawnAuthHook_GameCore
 
 --constants
@@ -179,8 +176,6 @@ local game_respawn_functions = {
 		--finish up the game_respawns table cleanup
 		if CurTime() > respawn_time then
 			ply:Spawn()
-			
-			print("respawned em")
 			
 			game_respawns[ply_index] = nil
 		end
@@ -287,8 +282,6 @@ local function camera_create(master_index, camera_index, position, angles, force
 			
 			if game_camera_counts[master_index] == 1 then game_camera_counts[master_index] = nil
 			else game_camera_counts[master_index] = game_camera_counts[master_index] - 1 end
-			
-			print("Removing a camera")
 		end)
 		
 		--orientate the camera if it is a new entity
@@ -314,9 +307,6 @@ local function camera_disable(ply, ply_index, master_index)
 end
 
 local function camera_enable(ply, ply_index, master_index, camera_index)
-	print("camera_enable trace")
-	debug.Trace()
-	
 	--set the player's view to the camera by the player, their index, the master index, and camera index
 	local camera = game_cameras[master_index][camera_index]
 	
@@ -460,7 +450,7 @@ local function game_add(ply, master_index)
 	
 	--do it as early as possible
 	ply:CollisionRulesChanged()
-	ply:SetCustomCollisionCheck(true)
+	--ply:SetCustomCollisionCheck(true)
 	
 	game_masters[ply_index] = master_index
 	settings.plys[ply_index] = true
@@ -577,7 +567,7 @@ local function game_remove(ply, enum)
 	
 	--we gotta do it early
 	ply:CollisionRulesChanged()
-	ply:SetCustomCollisionCheck(false)
+	--ply:SetCustomCollisionCheck(false)
 	
 	--if there is no enum, don't execute the chip
 	--also, we call this so early so the player can do something before the player leaves
@@ -693,7 +683,7 @@ local function normalized_angle(pitch, yaw, roll)
 end
 
 --post function setup
-E2Lib.RegisterExtension("game", true,
+E2Lib.RegisterExtension("game", false,
 	"Allows players to have more control over other players, as long as the other player consents. Players will be restored to their original state (including position), upon leaving a game.",
 	"Oh god oh shit.")
 
@@ -719,8 +709,7 @@ fl_Player_RemoveAllAmmo = create_function_detour(ply_meta, "RemoveAllAmmo", "amm
 fl_Player_StripAmmo = create_function_detour(ply_meta, "StripAmmo", "ammo", {})
 fl_Player_StripWeapons = create_function_detour(ply_meta, "StripWeapons", "arsenal", {})
 
---localize these
-fl_Player_SetAmmo = create_function_header(ply_meta, "SetAmmo", function(ply, ply_index, count, ammo_type) ply_settings[ply_index].ammo[type(ammo_type) == "string" and game.GetAmmoID(ammo_type) or ammo_type] = count end)
+fl_Player_SetAmmo = create_function_header(ply_meta, "SetAmmo", function(ply, ply_index, count, ammo_type) ply_settings[ply_index].ammo[isstring(ammo_type) and game.GetAmmoID(ammo_type) or ammo_type] = count end)
 fl_Player_StripWeapon = create_function_header(ply_meta, "StripWeapon", function(ply, ply_index, weapon_class) ply_settings[ply_index].arsenal[weapon_class] = nil end)
 
 --global functions --SetPos
@@ -735,11 +724,11 @@ fl_Player_StripWeapon = create_function_header(ply_meta, "StripWeapon", function
 ]]
 
 --we can't just use a hook, because it will still allow the original method provided by the sandbox gamemode
-function GAMEMODE:PlayerDeathThink(ply)
+function GAMEMODE:PlayerDeathThink(ply, ...)
 	local master_index = game_masters[ply:EntIndex()]
 	
 	if master_index then game_respawn_functions[game_settings[master_index].respawn_mode](ply, master_index)
-	else fl_GAMEMODE_PlayerDeathThink(GAMEMODE, ply) end
+	else fl_GAMEMODE_PlayerDeathThink(GAMEMODE, ply, ...) end
 end
 
 --probably need to make this work with other things that set it
@@ -794,9 +783,6 @@ do
 			
 			if camera then
 				local angle = normalized_angle(angle[1], angle[2], angle[3])
-				
-				print("game camera new angles")
-				PrintTable(angle)
 				
 				if angle then
 					camera:SetAngles(angle)
@@ -1326,6 +1312,51 @@ do
 			
 			return 0
 		end
+		
+		__e2setcost(5)
+		e2function array gamePlayers()
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				local plys = {}
+				
+				game_function_players(master_index, function(ply, ply_index) table.insert(plys, ply) end)
+				
+				return plys
+			end
+			
+			return {}
+		end
+		
+		__e2setcost(6)
+		e2function array gamePlayersAlive()
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				local plys = {}
+				
+				game_function_players(master_index, function(ply, ply_index) if ply:Alive() then table.insert(plys, ply) end end)
+				
+				return plys
+			end
+			
+			return {}
+		end
+		
+		__e2setcost(6)
+		e2function array gamePlayersDead()
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				local plys = {}
+				
+				game_function_players(master_index, function(ply, ply_index) if not ply:Alive() then table.insert(plys, ply) end end)
+				
+				return plys
+			end
+			
+			return {}
+		end
 	end
 	
 	--health
@@ -1828,24 +1859,6 @@ do
 		--clip
 		do
 			__e2setcost(10)
-			e2function number gamePlayerSetClip1(amount)
-				if IsValid(this) and this:IsWeapon() then
-					owner = this:GetOwner()
-					
-					if IsValid(owner) then
-						local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-						
-						if is_constructor then
-							game_function_players(master_index, function(ply) ply:SetClip1(amount) end)
-							
-							return 1
-						end
-					end
-				end
-				
-				return 0
-			end
-			
 			e2function number gamePlayerSetClip1(string weapon_class, amount)
 				local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 				
@@ -1898,24 +1911,6 @@ do
 			end
 			
 			__e2setcost(10)
-			e2function number gamePlayerSetClip2(amount)
-				if IsValid(this) and this:IsWeapon() then
-					owner = this:GetOwner()
-					
-					if IsValid(owner) then
-						local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-						
-						if is_constructor then
-							game_function_players(master_index, function(ply) ply:SetClip2(amount) end)
-							
-							return 1
-						end
-					end
-				end
-				
-				return 0
-			end
-			
 			e2function number gamePlayerSetClip2(string weapon_class, amount)
 				local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 				
@@ -2388,8 +2383,6 @@ end
 --callbacks
 registerCallback("construct",
 	function(self)
-		print("game core construct", self, self.entity)
-		
 		local master_index = self.player:EntIndex()
 		
 		if master_index and not game_settings[master_index] then construct_game_settings(master_index) end
@@ -2400,8 +2393,6 @@ registerCallback("destruct",
 	function(self)
 		local entity = self.entity
 		local master_index = game_constructor[entity:EntIndex()]
-		
-		print("game core destruct", self, entity)
 		
 		run_game_deaths[entity] = nil
 		run_game_joins[entity] = nil
@@ -2504,11 +2495,7 @@ hook.Add("PlayerDeath", "wire_game_core", function(victim, inflictor, attacker)
 		local entity = Entity(game_constructor[master_index])
 		local defaults = game_settings[master_index].defaults
 		
-		if defaults.respawn_mode == game_constants.RESPAWNMODE_DELAYED then
-			print("setting spawn delay", defaults.respawn_delay)
-			
-			game_respawns[victim_index] = CurTime() + defaults.respawn_delay
-		end
+		if defaults.respawn_mode == game_constants.RESPAWNMODE_DELAYED then game_respawns[victim_index] = CurTime() + defaults.respawn_delay end
 		
 		if run_game_deaths[entity] then
 			game_function_execute(entity, {
@@ -2543,6 +2530,8 @@ hook.Add("PlayerInitialSpawn", "wire_game_core", function(ply)
 	game_settings[ply_index] = nil
 	ply_settings[ply_index] = nil
 	
+	ply:SetCustomCollisionCheck(true)
+	
 	net.Start("wire_game_core_block_update")
 	net.WriteBool(true)
 	net.WriteUInt(ply_index, 8)
@@ -2567,6 +2556,13 @@ hook.Add("PlayerSpawn", "wire_game_core", function(ply)
 	end
 end)
 
+--more here please
+hook.Add("PlayerTraceAttack", "wire_game_core", function(ply, damage_info, direction, trace)
+	local attacker = damage_info:GetAttacker()
+	
+	if IsValid(attacker) and game_masters[attacker:EntIndex()] ~= game_masters[victim:EntIndex()] then return true end
+end)
+
 hook.Add("PlayerGiveSWEP", "wire_game_core", active_game_inv)
 hook.Add("PlayerSpawnNPC", "wire_game_core", active_game_inv)
 hook.Add("PlayerSpawnObject", "wire_game_core", active_game_inv)
@@ -2580,6 +2576,9 @@ hook.Add("PrePACConfigApply", "wire_game_core", function(ply, data)
 	if game_masters[ply_index] then return false, "You cannot wear your outfit while in a game." end
 end)
 
+--I HATE THIS
+--PLEASE SOMEONE WORK ON GMOD'S PHYSICS
+--GARRY? RUBAT? ANYONE? PLEEEEEAAASE
 hook.Add("ShouldCollide", "wire_game_core", function(ent_1, ent_2)
 	if ent_1:IsPlayer() and ent_2:IsPlayer() and game_masters[ent_1:EntIndex()] ~= game_masters[ent_2:EntIndex()] then return false end
 	
