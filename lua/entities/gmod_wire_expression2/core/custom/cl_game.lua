@@ -20,6 +20,7 @@ local function_descriptions = {
 	["gameDeathClk"] =								5,
 	["gameDeathInflictor"] =						5,
 	["gameEnableFallDamage"] =						3,
+	["gameEnablePlayerCollision"] =					3,
 	["gameEnablePush"] =							3,
 	["gameEnableSuicide"] =							3,
 	["gameJoinClk"] =								6,

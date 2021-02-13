@@ -86,6 +86,7 @@ local ply_settings = {}			--y for restoring the player;					k: player index,		v:
 	local fl_GAMEMODE_PlayerDeathThink = GAMEMODE.PlayerDeathThinkX_GameCore or GAMEMODE.PlayerDeathThink
 	local fl_Player_GodDisable
 	local fl_Player_GodEnable
+	local fl_Player_RemoveAllItems
 	local fl_Player_SetArmor
 	local fl_Player_SetCrouchedWalkSpeed
 	local fl_Player_SetFOV
@@ -160,8 +161,10 @@ local game_default_settings = {
 		stroll_speed = 100,
 		walk_speed = 200,
 	},
+	
 	block_fall_damage = false,
 	open = false,
+	player_collision = true,
 	plys = {},
 	requests = {},
 	title = "Unnamed Game"
@@ -374,7 +377,7 @@ local function create_function_detour(function_table, function_name, field, forc
 		--we have a field that we need to update
 		if force_value then
 			--set the field to the force_value when force_value is specified
-			function_table[function_name] = function(self, ...)
+			function_table[function_name] = function(self, ...) print("detour ran! " .. function_name) debug.Trace()
 				local ply_index = self:EntIndex()
 				
 				if game_masters[ply_index] then ply_settings[ply_index][field] = force_value
@@ -382,7 +385,7 @@ local function create_function_detour(function_table, function_name, field, forc
 			end
 		else
 			--take the value from the function and set the field to it
-			function_table[function_name] = function(self, interest, ...)
+			function_table[function_name] = function(self, interest, ...) print("detour ran! " .. function_name) debug.Trace()
 				local ply_index = self:EntIndex()
 				
 				if game_masters[ply_index] then ply_settings[ply_index][field] = interest
@@ -391,7 +394,7 @@ local function create_function_detour(function_table, function_name, field, forc
 		end
 	else
 		--we don't have a value to provide to ply_settings, just block it if they are in game
-		function_table[function_name] = function(self, ...) if not game_masters[self:EntIndex()] then existing_function(self, ...) end end
+		function_table[function_name] = function(self, ...) print("detour ran! " .. function_name) debug.Trace() if not game_masters[self:EntIndex()] then existing_function(self, ...) end end
 	end
 	
 	return existing_function
@@ -417,6 +420,7 @@ end
 local function game_acclimate(ply, ply_index, defaults)
 	--situate the player to the games defaults, used when the player spawns and when they join
 	fl_Player_RemoveAllAmmo(ply)
+	fl_Player_StripWeapons(ply)
 	
 	fl_Entity_SetGravity(ply, defaults.gravity)
 	fl_Entity_SetHealth(ply, defaults.health)
@@ -685,10 +689,11 @@ end
 --post function setup
 E2Lib.RegisterExtension("game", false,
 	"Allows players to have more control over other players, as long as the other player consents. Players will be restored to their original state (including position), upon leaving a game.",
-	"Oh god oh shit.")
+	"Restart the server after disabling!\nThis extension is still in development. Although many measures have been taking to ensure addon intercompatibility, some addons may still break this extension. If any script errors are experienced or a conflict/exploit arises please report it.")
 
 for enum, value in pairs(game_constants) do E2Lib.registerConstant("_GAME" .. enum, value) end
 
+--quick detours
 fl_Entity_SetGravity = create_function_detour(entity_meta, "SetGravity", "gravity")
 fl_Entity_SetHealth = create_function_detour(entity_meta, "SetHealth", "health")
 fl_Entity_SetMaxHealth = create_function_detour(entity_meta, "SetMaxHealth", "max_health")
@@ -696,6 +701,7 @@ fl_Entity_SetMoveType = create_function_detour(entity_meta, "SetMoveType", "move
 fl_Entity_SetPos = create_function_detour(entity_meta, "SetPos", "position")
 fl_Player_GodDisable = create_function_detour(ply_meta, "GodDisable", "god", false)
 fl_Player_GodEnable = create_function_detour(ply_meta, "GodEnable", "god", true)
+
 fl_Player_SetArmor = create_function_detour(ply_meta, "SetArmor", "armor")
 fl_Player_SetCrouchedWalkSpeed = create_function_detour(ply_meta, "SetCrouchedWalkSpeed", "crouch_speed")
 fl_Player_SetFOV = create_function_detour(ply_meta, "SetFOV", "fov")
@@ -708,6 +714,12 @@ fl_Player_SetWalkSpeed = create_function_detour(ply_meta, "SetWalkSpeed", "walk_
 fl_Player_RemoveAllAmmo = create_function_detour(ply_meta, "RemoveAllAmmo", "ammo", {})
 fl_Player_StripAmmo = create_function_detour(ply_meta, "StripAmmo", "ammo", {})
 fl_Player_StripWeapons = create_function_detour(ply_meta, "StripWeapons", "arsenal", {})
+
+--detour headers
+fl_Player_RemoveAllItems = create_function_header(ply_meta, "RemoveAllItems", function(ply, ply_index)
+	ply_settings[ply_index].ammo = {}
+	ply_settings[ply_index].arsenal = {}
+end)
 
 fl_Player_SetAmmo = create_function_header(ply_meta, "SetAmmo", function(ply, ply_index, count, ammo_type) ply_settings[ply_index].ammo[isstring(ammo_type) and game.GetAmmoID(ammo_type) or ammo_type] = count end)
 fl_Player_StripWeapon = create_function_header(ply_meta, "StripWeapon", function(ply, ply_index, weapon_class) ply_settings[ply_index].arsenal[weapon_class] = nil end)
@@ -747,31 +759,6 @@ function ply_meta:SetViewEntity(view_entity, ...)
 end
 
 --e2functions
-__e2setcost(2)
-e2function number gameEnableFallDamage(enabled)
-	local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-	
-	if is_constructor then
-		game_settings[master_index].block_fall_damage = enabled == 0 and true or false
-		
-		return 1
-	end
-	
-	return 0
-end
-
-e2function number gameEnableSuicide(enabled)
-	local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-	
-	if is_constructor then
-		game_settings[master_index].block_suicide = enabled == 0 and true or false
-		
-		return 1
-	end
-	
-	return 0
-end
-
 ----camera e2functions
 do
 	__e2setcost(8)
@@ -1070,46 +1057,447 @@ do
 		return 0
 	end
 end
+----SwitchToDefaultWeapon
+----game management
+do
+	--player management
+	do
+		__e2setcost(10)
+		e2function number gameClose()
+			local chip_index = self.entity:EntIndex()
+			local master_index = self.player:EntIndex()
+			
+			if game_constructor[master_index] then
+				game_set_closed(master_index)
+				
+				return 1
+			end
+			
+			return 0
+		end
 
-__e2setcost(10)
-e2function number gameClose()
-	local chip_index = self.entity:EntIndex()
-	local master_index = self.player:EntIndex()
-	
-	if game_constructor[master_index] then
-		game_set_closed(master_index)
+		__e2setcost(5)
+		e2function number gameOpen()
+			local chip_index = self.entity:EntIndex()
+			local master_index = self.player:EntIndex()
+			
+			if game_constructor[master_index] then return 0 end
+			
+			if not game_settings[master_index] then
+				--this happened ONCE before, and I want to know if it ever happens again
+				print("\nvvv PLEASE REPORT THIS TO THE DEVELOPER vvv\n[Game Core] Looks like game_settings was not constructed when we opened the game... here's the trace:")
+				debug.Trace()
+				print("Constructing...\n^^^ PLEASE REPORT THIS TO THE DEVELOPER ^^^\n")
+				
+				construct_game_settings(master_index)
+			end
+			
+			game_constructor[chip_index] = master_index
+			game_constructor[master_index] = chip_index
+			
+			add_sync_request(master_index)
+			
+			return 1
+		end
 		
-		return 1
+		__e2setcost(5)
+		e2function number gamePlayerCount()
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then return table.Count(game_settings[master_index].plys) end
+			
+			return -1
+		end
+		
+		__e2setcost(6)
+		e2function number entity:gamePlayerCount()
+			if IsValid(this) and this.context then
+				local is_constructor, chip_index, master_index = game_evaluator_constructor_only(this.context)
+				
+				if master_index then return table.Count(game_settings[master_index].plys) end
+			end
+			
+			return -1
+		end
+		
+		__e2setcost(25)
+		e2function number gamePlayerRemove()
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				game_remove_all(master_index, true)
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
+		__e2setcost(10)
+		e2function number entity:gamePlayerRemove()
+			local is_participating = game_evaluator_player_only(self, this)
+			
+			if is_participating then
+				game_remove(this, game_constants.LEAVE_REMOVED)
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
+		__e2setcost(5)
+		e2function array gamePlayers()
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				local plys = {}
+				
+				game_function_players(master_index, function(ply, ply_index) table.insert(plys, ply) end)
+				
+				return plys
+			end
+			
+			return {}
+		end
+		
+		__e2setcost(6)
+		e2function array gamePlayersAlive()
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				local plys = {}
+				
+				game_function_players(master_index, function(ply, ply_index) if ply:Alive() then table.insert(plys, ply) end end)
+				
+				return plys
+			end
+			
+			return {}
+		end
+		
+		__e2setcost(6)
+		e2function array gamePlayersDead()
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				local plys = {}
+				
+				game_function_players(master_index, function(ply, ply_index) if not ply:Alive() then table.insert(plys, ply) end end)
+				
+				return plys
+			end
+			
+			return {}
+		end
+		
+		__e2setcost(10)
+		e2function number entity:gameRequest()
+			if IsValid(this) and this:IsPlayer() then
+				local chip_index = self.entity:EntIndex()
+				local master = self.player
+				local master_index = master:EntIndex()
+				local ply_index = this:EntIndex()
+				
+				--only let the chip that opened the game make requests, also makes it so we can't request when there is not game
+				if game_constructor[master_index] ~= chip_index then return game_constants.REQUEST_GAMELESS end
+				
+				if game_masters[ply_index] then
+					if game_masters[ply_index] == master_index then return game_constants.REQUEST_ESTABLISHED
+					else return game_constants.REQUEST_ESTABLISHED_OTHER end
+				end
+				
+				if game_blocks[ply_index] and game_blocks[ply_index][master_index] then return game_constants.REQUEST_BLOCKED end
+				if game_request_delays[master_index] and game_request_delays[master_index][ply_index] then return game_constants.REQUEST_LIMITED end
+				
+				--if they're a bot, and the master is an admin, force the bot into the game
+				if this:IsBot() and master:IsAdmin() then
+					game_add(this, master_index)
+					
+					--works for bots without an infinite loop, I hope
+					if run_game_joins[entity] then game_function_execute(entity, {game_join_run = ply}) end
+				end
+				
+				--we made it, now time to send the request
+				if queue_game_requests[ply_index] then queue_game_requests[ply_index][master_index] = true
+				else
+					queue_game_requests[ply_index] = {[master_index] = true}
+					queue_game_requests_check = true
+				end
+				
+				--then make the delay
+				--if the owner makes the request we will just put them into the game and return game_constants.RESPONSE_ACCEPT_FORCED
+				if game_request_delays[master_index] then game_request_delays[master_index][ply_index] = CurTime() + 5
+				else game_request_delays[master_index] = {[ply_index] = CurTime() + 5} end
+				
+				--finally, register that the chip actually made a request for the player to join
+				--we need this so players with cheats can't respond to a request that was never made, yes someone did this to get into games without a request
+				game_settings[master_index].requests[ply_index] = true
+				
+				return game_constants.REQUEST_SENT
+				
+			else return game_constants.REQUEST_INVALID_TARGET end
+			
+			return game_constants.REQUEST_UNKNOWN
+		end
+
+		__e2setcost(3)
+		e2function number gameSetJoinable(joinable)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				add_sync_request(master_index)
+				
+				game_settings[master_index].open = joinable ~= 0 and true or false
+				
+				return 1
+			end
+			
+			return 0
+		end
+
+		__e2setcost(3)
+		e2function number gameSetTitle(string title)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				add_sync_request(master_index)
+				
+				game_settings[master_index].title = string.sub(title, 1, 64)
+				
+				return 1
+			end
+			
+			return 0
+		end
 	end
 	
-	return 0
+	--toggles
+	do
+		__e2setcost(2)
+		e2function number gameEnableFallDamage(enabled)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				game_settings[master_index].block_fall_damage = enabled == 0 and true or false
+				
+				return 1
+			end
+			
+			return 0
+		end
+
+		e2function number gameEnableSuicide(enabled)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				game_settings[master_index].block_suicide = enabled == 0 and true or false
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
+		e2function number gameEnablePlayerCollision(enabled)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				game_settings[master_index].player_collision = enabled == 0 and true or false
+				
+				return 1
+			end
+			
+			return 0
+		end
+	end
 end
 
-__e2setcost(5)
-e2function number gameOpen()
-	local chip_index = self.entity:EntIndex()
-	local master_index = self.player:EntIndex()
-	
-	if game_constructor[master_index] then return 0 end
-	
-	if not game_settings[master_index] then
-		--this happened ONCE before, and I want to know if it ever happens again
-		print("\nvvv PLEASE REPORT THIS TO THE DEVELOPER vvv\n[Game Core] Looks like game_settings was not constructed when we opened the game... here's the trace:")
-		debug.Trace()
-		print("Constructing...\n^^^ PLEASE REPORT THIS TO THE DEVELOPER ^^^\n")
+----player defaults
+do
+	__e2setcost(2)
+	e2function number gameSetDefaultArmor(armor)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 		
-		construct_game_settings(master_index)
+		if is_constructor then
+			game_settings[master_index].defaults.armor = fl_math_Clamp(armor, 0, game_max_armor)
+			
+			return 1
+		end
+		
+		return 0
 	end
 	
-	game_constructor[chip_index] = master_index
-	game_constructor[master_index] = chip_index
+	e2function number gameSetDefaultCrouchSpeedMultiplier(multiplier)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor then
+			game_settings[master_index].defaults.crouch_speed = fl_math_Clamp(multiplier, 0, 1)
+			
+			return 1
+		end
+		
+		return 0
+	end
 	
-	add_sync_request(master_index)
+	e2function number gameSetDefaultDamageDealtMultiplier(multiplier)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor then
+			game_settings[master_index].defaults.damage_dealt = fl_math_Clamp(multiplier, 0, game_max_damage_multiplier)
+			
+			return 1
+		end
+		
+		return 0
+	end
 	
-	return 1
+	e2function number gameSetDefaultDamageTakenMultiplier(multiplier)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor then
+			game_settings[master_index].defaults.damage_taken = fl_math_Clamp(multiplier, 0, game_max_damage_multiplier)
+			
+			return 1
+		end
+		
+		return 0
+	end
+	
+	e2function number gameSetDefaultFlashlight(enabled)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor then
+			game_settings[master_index].defaults.flashlight = enabled ~= 0 and true or false
+			
+			return 1
+		end
+		
+		return 0
+	end
+	
+	e2function number gameSetDefaultGravity(multiplier)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor then
+			game_settings[master_index].defaults.gravity = fl_math_Clamp(multiplier, -10, 10)
+			
+			return 1
+		end
+		
+		return 0
+	end
+	
+	e2function number gameSetDefaultHealth(health)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor then
+			game_settings[master_index].defaults.health = fl_math_Clamp(health, 1, 1000)
+			
+			return 1
+		end
+		
+		return 0
+	end
+	
+	e2function number gameSetDefaultJumpPower(power)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor then
+			game_settings[master_index].defaults.jump_power = fl_math_Clamp(power, 0, 1024)
+			
+			return 1
+		end
+		
+		return 0
+	end
+	
+	e2function number gameSetDefaultLadderSpeed(speed)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor then
+			game_settings[master_index].defaults.ladder_speed = fl_math_Clamp(speed, 0, game_max_speed)
+			
+			return 1
+		end
+		
+		return 0
+	end
+	
+	e2function number gameSetDefaultMaxHealth(max)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor then
+			game_settings[master_index].defaults.max_health = fl_math_Clamp(max, 1, 1000)
+			
+			return 1
+		end
+		
+		return 0
+	end
+	
+	e2function number gameSetDefaultRespawnDelay(delay)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor and ian(delay) then
+			game_settings[master_index].defaults.respawn_delay = fl_math_Clamp(delay, 0.1, 60)
+			
+			return 1
+		end
+		
+		return 0
+	end
+	
+	e2function number gameSetDefaultRespawnMode(enum)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor then
+			game_settings[master_index].respawn_mode = enum > 0 and enum < 5 and enum or 2
+			
+			return 1
+		end
+		
+		return 0
+	end
+	
+	e2function number gameSetDefaultRunSpeed(speed)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor then
+			game_settings[master_index].defaults.run_speed = fl_math_Clamp(speed, 0, game_max_speed)
+			
+			return 1
+		end
+		
+		return 0
+	end
+	
+	e2function number gameSetDefaultSpeed(speed)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor then
+			game_settings[master_index].defaults.walk_speed = fl_math_Clamp(speed, 0, game_max_speed)
+			
+			return 1
+		end
+		
+		return 0
+	end
+	
+	e2function number gameSetDefaultWalkSpeed(speed)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor then
+			game_settings[master_index].defaults.stroll_speed = fl_math_Clamp(speed, 0, game_max_speed)
+			
+			return 1
+		end
+		
+		return 0
+	end
 end
 
-----player e2functions
+----player control
 do
 	--camera
 	do
@@ -1265,100 +1653,6 @@ do
 		end
 	end
 	
-	--game management
-	do
-		__e2setcost(5)
-		e2function number gamePlayerCount()
-			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-			
-			if is_constructor then return table.Count(game_settings[master_index].plys) end
-			
-			return -1
-		end
-		
-		__e2setcost(6)
-		e2function number entity:gamePlayerCount()
-			if IsValid(this) and this.context then
-				local is_constructor, chip_index, master_index = game_evaluator_constructor_only(this.context)
-				
-				if master_index then return table.Count(game_settings[master_index].plys) end
-			end
-			
-			return -1
-		end
-		
-		__e2setcost(25)
-		e2function number gamePlayerRemove()
-			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-			
-			if is_constructor then
-				game_remove_all(master_index, true)
-				
-				return 1
-			end
-			
-			return 0
-		end
-		
-		__e2setcost(10)
-		e2function number entity:gamePlayerRemove()
-			local is_participating = game_evaluator_player_only(self, this)
-			
-			if is_participating then
-				game_remove(this, game_constants.LEAVE_REMOVED)
-				
-				return 1
-			end
-			
-			return 0
-		end
-		
-		__e2setcost(5)
-		e2function array gamePlayers()
-			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-			
-			if is_constructor then
-				local plys = {}
-				
-				game_function_players(master_index, function(ply, ply_index) table.insert(plys, ply) end)
-				
-				return plys
-			end
-			
-			return {}
-		end
-		
-		__e2setcost(6)
-		e2function array gamePlayersAlive()
-			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-			
-			if is_constructor then
-				local plys = {}
-				
-				game_function_players(master_index, function(ply, ply_index) if ply:Alive() then table.insert(plys, ply) end end)
-				
-				return plys
-			end
-			
-			return {}
-		end
-		
-		__e2setcost(6)
-		e2function array gamePlayersDead()
-			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-			
-			if is_constructor then
-				local plys = {}
-				
-				game_function_players(master_index, function(ply, ply_index) if not ply:Alive() then table.insert(plys, ply) end end)
-				
-				return plys
-			end
-			
-			return {}
-		end
-	end
-	
 	--health
 	do
 		__e2setcost(10)
@@ -1491,58 +1785,6 @@ do
 				
 				if position then
 					this:SetPos(position)
-					
-					return 1
-				end
-			end
-			
-			return 0
-		end
-	end
-	
-	--sound, and more to come like voice chat restriction
-	do
-		__e2setcost(20)
-		e2function number gamePlayerPlaySound(string sound_path)
-			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-			
-			if is_constructor then
-				local sound_path_truncated = string.sub(sound_path, 1, 192)
-				
-				--keep the exploiters away
-				if string.match(sound_path_truncated, '["?]') then return 0 end
-				
-				game_function_players(master_index, function(ply, ply_index)
-					if not queue_game_sounds[ply_index] then queue_game_sounds[ply_index] = {} end
-					if #queue_game_sounds[ply_index] < queue_game_sounds_max then
-						queue_game_sounds_check = true
-						
-						table.insert(queue_game_sounds[ply_index], sound_path_truncated)
-					end
-				end)
-				
-				return 1
-			end
-			
-			return 0
-		end
-		
-		__e2setcost(6)
-		e2function number entity:gamePlayerPlaySound(string sound_path)
-			local is_participating, ply_index = game_evaluator_player_only(self, this)
-			
-			if is_participating then
-				if not queue_game_sounds[ply_index] then queue_game_sounds[ply_index] = {} end
-				
-				if #queue_game_sounds[ply_index] < queue_game_sounds_max then
-					local sound_path_truncated = string.sub(sound_path, 1, 192)
-					
-					--keep the exploiters away
-					if string.match(sound_path_truncated, '["?]') then return 0 end
-					
-					queue_game_sounds_check = true
-					
-					table.insert(queue_game_sounds[ply_index], sound_path_truncated)
 					
 					return 1
 				end
@@ -1707,6 +1949,58 @@ do
 				fl_Player_SetSlowWalkSpeed(this, fl_math_Clamp(speed, 0, game_max_speed))
 				
 				return 1
+			end
+			
+			return 0
+		end
+	end
+
+	--sound, and more to come like voice chat restriction
+	do
+		__e2setcost(20)
+		e2function number gamePlayerPlaySound(string sound_path)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				local sound_path_truncated = string.sub(sound_path, 1, 192)
+				
+				--keep the exploiters away
+				if string.match(sound_path_truncated, '["?]') then return 0 end
+				
+				game_function_players(master_index, function(ply, ply_index)
+					if not queue_game_sounds[ply_index] then queue_game_sounds[ply_index] = {} end
+					if #queue_game_sounds[ply_index] < queue_game_sounds_max then
+						queue_game_sounds_check = true
+						
+						table.insert(queue_game_sounds[ply_index], sound_path_truncated)
+					end
+				end)
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
+		__e2setcost(6)
+		e2function number entity:gamePlayerPlaySound(string sound_path)
+			local is_participating, ply_index = game_evaluator_player_only(self, this)
+			
+			if is_participating then
+				if not queue_game_sounds[ply_index] then queue_game_sounds[ply_index] = {} end
+				
+				if #queue_game_sounds[ply_index] < queue_game_sounds_max then
+					local sound_path_truncated = string.sub(sound_path, 1, 192)
+					
+					--keep the exploiters away
+					if string.match(sound_path_truncated, '["?]') then return 0 end
+					
+					queue_game_sounds_check = true
+					
+					table.insert(queue_game_sounds[ply_index], sound_path_truncated)
+					
+					return 1
+				end
 			end
 			
 			return 0
@@ -2025,272 +2319,6 @@ do
 	end
 end
 
---back to misc.
-__e2setcost(10)
-e2function number entity:gameRequest()
-	if IsValid(this) and this:IsPlayer() then
-		local chip_index = self.entity:EntIndex()
-		local master = self.player
-		local master_index = master:EntIndex()
-		local ply_index = this:EntIndex()
-		
-		--only let the chip that opened the game make requests, also makes it so we can't request when there is not game
-		if game_constructor[master_index] ~= chip_index then return game_constants.REQUEST_GAMELESS end
-		
-		if game_masters[ply_index] then
-			if game_masters[ply_index] == master_index then return game_constants.REQUEST_ESTABLISHED
-			else return game_constants.REQUEST_ESTABLISHED_OTHER end
-		end
-		
-		if game_blocks[ply_index] and game_blocks[ply_index][master_index] then return game_constants.REQUEST_BLOCKED end
-		if game_request_delays[master_index] and game_request_delays[master_index][ply_index] then return game_constants.REQUEST_LIMITED end
-		
-		--if they're a bot, and the master is an admin, force the bot into the game
-		if this:IsBot() and master:IsAdmin() then
-			game_add(this, master_index)
-			
-			--works for bots without an infinite loop, I hope
-			if run_game_joins[entity] then game_function_execute(entity, {game_join_run = ply}) end
-		end
-		
-		--we made it, now time to send the request
-		if queue_game_requests[ply_index] then queue_game_requests[ply_index][master_index] = true
-		else
-			queue_game_requests[ply_index] = {[master_index] = true}
-			queue_game_requests_check = true
-		end
-		
-		--then make the delay
-		--if the owner makes the request we will just put them into the game and return game_constants.RESPONSE_ACCEPT_FORCED
-		if game_request_delays[master_index] then game_request_delays[master_index][ply_index] = CurTime() + 5
-		else game_request_delays[master_index] = {[ply_index] = CurTime() + 5} end
-		
-		--finally, register that the chip actually made a request for the player to join
-		--we need this so players with cheats can't respond to a request that was never made, yes someone did this to get into games without a request
-		game_settings[master_index].requests[ply_index] = true
-		
-		return game_constants.REQUEST_SENT
-		
-	else return game_constants.REQUEST_INVALID_TARGET end
-	
-	return game_constants.REQUEST_UNKNOWN
-end
-
-----default game settings e2functions
-do
-	__e2setcost(2)
-	e2function number gameSetDefaultArmor(armor)
-		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-		
-		if is_constructor then
-			game_settings[master_index].defaults.armor = fl_math_Clamp(armor, 0, game_max_armor)
-			
-			return 1
-		end
-		
-		return 0
-	end
-	
-	e2function number gameSetDefaultCrouchSpeedMultiplier(multiplier)
-		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-		
-		if is_constructor then
-			game_settings[master_index].defaults.crouch_speed = fl_math_Clamp(multiplier, 0, 1)
-			
-			return 1
-		end
-		
-		return 0
-	end
-	
-	e2function number gameSetDefaultDamageDealtMultiplier(multiplier)
-		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-		
-		if is_constructor then
-			game_settings[master_index].defaults.damage_dealt = fl_math_Clamp(multiplier, 0, game_max_damage_multiplier)
-			
-			return 1
-		end
-		
-		return 0
-	end
-	
-	e2function number gameSetDefaultDamageTakenMultiplier(multiplier)
-		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-		
-		if is_constructor then
-			game_settings[master_index].defaults.damage_taken = fl_math_Clamp(multiplier, 0, game_max_damage_multiplier)
-			
-			return 1
-		end
-		
-		return 0
-	end
-	
-	e2function number gameSetDefaultFlashlight(enabled)
-		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-		
-		if is_constructor then
-			game_settings[master_index].defaults.flashlight = enabled ~= 0 and true or false
-			
-			return 1
-		end
-		
-		return 0
-	end
-	
-	e2function number gameSetDefaultGravity(multiplier)
-		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-		
-		if is_constructor then
-			game_settings[master_index].defaults.gravity = fl_math_Clamp(multiplier, -10, 10)
-			
-			return 1
-		end
-		
-		return 0
-	end
-	
-	e2function number gameSetDefaultHealth(health)
-		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-		
-		if is_constructor then
-			game_settings[master_index].defaults.health = fl_math_Clamp(health, 1, 1000)
-			
-			return 1
-		end
-		
-		return 0
-	end
-	
-	e2function number gameSetDefaultJumpPower(power)
-		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-		
-		if is_constructor then
-			game_settings[master_index].defaults.jump_power = fl_math_Clamp(power, 0, 1024)
-			
-			return 1
-		end
-		
-		return 0
-	end
-	
-	e2function number gameSetDefaultLadderSpeed(speed)
-		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-		
-		if is_constructor then
-			game_settings[master_index].defaults.ladder_speed = fl_math_Clamp(speed, 0, game_max_speed)
-			
-			return 1
-		end
-		
-		return 0
-	end
-	
-	e2function number gameSetDefaultMaxHealth(max)
-		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-		
-		if is_constructor then
-			game_settings[master_index].defaults.max_health = fl_math_Clamp(max, 1, 1000)
-			
-			return 1
-		end
-		
-		return 0
-	end
-	
-	e2function number gameSetDefaultRespawnDelay(delay)
-		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-		
-		if is_constructor and ian(delay) then
-			game_settings[master_index].defaults.respawn_delay = fl_math_Clamp(delay, 0.1, 60)
-			
-			return 1
-		end
-		
-		return 0
-	end
-	
-	e2function number gameSetDefaultRespawnMode(enum)
-		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-		
-		if is_constructor then
-			game_settings[master_index].respawn_mode = enum > 0 and enum < 5 and enum or 2
-			
-			return 1
-		end
-		
-		return 0
-	end
-	
-	e2function number gameSetDefaultRunSpeed(speed)
-		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-		
-		if is_constructor then
-			game_settings[master_index].defaults.run_speed = fl_math_Clamp(speed, 0, game_max_speed)
-			
-			return 1
-		end
-		
-		return 0
-	end
-	
-	e2function number gameSetDefaultSpeed(speed)
-		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-		
-		if is_constructor then
-			game_settings[master_index].defaults.walk_speed = fl_math_Clamp(speed, 0, game_max_speed)
-			
-			return 1
-		end
-		
-		return 0
-	end
-	
-	e2function number gameSetDefaultWalkSpeed(speed)
-		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-		
-		if is_constructor then
-			game_settings[master_index].defaults.stroll_speed = fl_math_Clamp(speed, 0, game_max_speed)
-			
-			return 1
-		end
-		
-		return 0
-	end
-end
-
---back to misc.
-__e2setcost(3)
-e2function number gameSetJoinable(joinable)
-	local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-	
-	if is_constructor then
-		add_sync_request(master_index)
-		
-		game_settings[master_index].open = joinable ~= 0 and true or false
-		
-		return 1
-	end
-	
-	return 0
-end
-
-__e2setcost(3)
-e2function number gameSetTitle(string title)
-	local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-	
-	if is_constructor then
-		add_sync_request(master_index)
-		
-		game_settings[master_index].title = string.sub(title, 1, 64)
-		
-		return 1
-	end
-	
-	return 0
-end
-
 ----run functions
 do
 	----runOnGame*(activate)
@@ -2557,10 +2585,10 @@ hook.Add("PlayerSpawn", "wire_game_core", function(ply)
 end)
 
 --more here please
-hook.Add("PlayerTraceAttack", "wire_game_core", function(ply, damage_info, direction, trace)
+hook.Add("PlayerTraceAttack", "wire_game_core", function(victim, damage_info, direction, trace)
 	local attacker = damage_info:GetAttacker()
 	
-	if IsValid(attacker) and game_masters[attacker:EntIndex()] ~= game_masters[victim:EntIndex()] then return true end
+	if IsValid(attacker) and attacker:IsPlayer() and game_masters[attacker:EntIndex()] ~= game_masters[victim:EntIndex()] then return true end
 end)
 
 hook.Add("PlayerGiveSWEP", "wire_game_core", active_game_inv)
@@ -2580,7 +2608,16 @@ end)
 --PLEASE SOMEONE WORK ON GMOD'S PHYSICS
 --GARRY? RUBAT? ANYONE? PLEEEEEAAASE
 hook.Add("ShouldCollide", "wire_game_core", function(ent_1, ent_2)
-	if ent_1:IsPlayer() and ent_2:IsPlayer() and game_masters[ent_1:EntIndex()] ~= game_masters[ent_2:EntIndex()] then return false end
+	if ent_1:IsPlayer() and ent_2:IsPlayer() then
+		local ent_1_master = game_masters[ent_1:EntIndex()]
+		local ent_2_master = game_masters[ent_2:EntIndex()]
+		
+		--player_collision
+		--if ent_1_master and ent_2_master then end
+		if ent_1_master ~= ent_2_master then return false end
+		
+		--if ent_1_master
+	end
 	
 	return true
 end)

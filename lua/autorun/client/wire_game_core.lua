@@ -23,19 +23,20 @@ local open_browser
 local open_request_gui
 
 ----colors
-	local color_button_text = Color(224, 224, 224)
-	local color_dark = Color(26, 26, 26)
-	local color_dark_baseboard = Color(28, 28, 28)
-	local color_dark_button = Color(36, 36, 36)
-	local color_dark_button_hover = Color(42, 42, 42)
-	local color_dark_header = Color(44, 44, 44)
-	local color_dark_text = Color(96, 96, 96)
-	local color_dark_track = Color(31, 31, 31)
-	local color_expression = Color(150, 34, 34)
-	local color_expression_excited = Color(158, 47, 47)
-	local color_game_highlight = Color(128, 255, 128)
-	local color_game_indicator = Color(192, 255, 192)
-	local color_ghost = Color(255, 255, 255, 127)
+	local associated_colors = include("colors.lua")
+	local color_button_text = associated_colors.color_button_text
+	local color_dark = associated_colors.color_dark
+	local color_dark_baseboard = associated_colors.color_dark_baseboard
+	local color_dark_button = associated_colors.color_dark_button
+	local color_dark_button_hover = associated_colors.color_dark_button_hover
+	local color_dark_header = associated_colors.color_dark_header
+	local color_dark_text = associated_colors.color_dark_text
+	local color_dark_track = associated_colors.color_dark_track
+	local color_expression = associated_colors.color_expression
+	local color_expression_excited = associated_colors.color_expression_excited
+	local color_game_highlight = associated_colors.color_game_highlight
+	local color_game_indicator = associated_colors.color_game_indicator
+	local color_ghost = associated_colors.color_ghost
 
 ----render parameters
 	local block_form
@@ -618,6 +619,7 @@ open_browser = function(icon, window)
 			
 			--assign a score to each game settings, and sort them into order
 			local fake_game_settings = table.Merge({
+				--[[
 				[2] = {
 					open = true,
 					plys = {
@@ -640,7 +642,7 @@ open_browser = function(icon, window)
 						[12] = true
 					},
 					title = "Cum Chalice Challenge"
-				}
+				}]]
 			}, table.Copy(game_settings))
 			
 			--determine "scores" for each game, higher score means higher placement in the list
