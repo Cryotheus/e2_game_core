@@ -1,4 +1,6 @@
 --note that I am still working on this, so I have not yet cached rendering functions and there is some other stuff which probably needs to be optimized
+include("wire_game_core/browser_game_entry.lua")
+
 --tables
 local game_blocks = {}				--y stores the blocked players, may not be used;	k: master index,		v: true
 local game_blocks_check_boxes = {}	--y stores the checkbox panel for every player;		k: master index,		v: panel
@@ -266,6 +268,14 @@ local function button_paint(self, w, h)
 	else fl_surface_SetDrawColor(color_dark_button) end
 	
 	fl_surface_DrawRect(0, 0, w, h)
+end
+
+local function button_paint_close(self, w, h)
+	if self.Depressed or self:IsSelected() or self:GetToggle() then fl_surface_SetDrawColor(color_expression) 
+	elseif self.Hovered then fl_surface_SetDrawColor(color_dark_baseboard)
+	else fl_surface_SetDrawColor(color_dark_button) end
+	
+	fl_surface_DrawRect(0, 2, w, h - 4)
 end
 
 local function calc_cogs(start_rate, start_size, start_x, start_y, ideas, debugging)
@@ -557,7 +567,27 @@ open_browser = function(icon, window)
 	browser:SetSize(browser_w, browser_h)
 	browser:SetTitle("#wire_game_core.browser.title")
 	
-	function browser:OnClose() browser = nil end
+	browser.btnMaxim:SetVisible(false)
+	browser.btnMinim:SetVisible(false)
+	
+	----close button
+		local button_close = browser.btnClose
+		
+		button_close:SetText("#wire_game_core.browser.close")
+		
+		button_close.Paint = button_paint_close
+		
+		function browser.btnClose:PerformLayout(width, height)
+			surface.SetFont("DermaDefault")
+			
+			local text_width = surface.GetTextSize(language.GetPhrase("wire_game_core.browser.close"))
+			local size = text_width + 10
+			
+			self:SetPos(self:GetParent():GetWide() - size - 2, 0)
+			self:SetWidth(size)
+		end
+	
+	function browser:OnRemove() browser = nil end
 	
 	function browser:Paint(w, h)
 		fl_surface_SetDrawColor(color_dark)
@@ -603,13 +633,14 @@ open_browser = function(icon, window)
 	
 	----scroller containing a list of games
 	do
-		local scroll_bar = vgui.Create("DScrollPanel", browser)
+		local scroller = vgui.Create("DScrollPanel", browser)
 		
-		scroll_bar:Dock(FILL)
-		scroll_bar:DockMargin(0, browser_baseboard_h, 0, 0)
+		scroller:Dock(FILL)
+		scroller:DockMargin(0, browser_baseboard_h, 0, 0)
+		scroller:SetVerticalScrollbarEnabled(false)
 		
 		--create entries, note that this can get expensive, but it will not get more expensive than O(n^2 + n)
-		function scroll_bar:GenerateGameEntries()
+		function scroller:GenerateGameEntries()
 			--todo: make it so individual entries are updated, instead of recreating this list every time a sync is received
 			--if a new game appears, or players change, then we reconstruct it
 			local order = {}
@@ -619,7 +650,7 @@ open_browser = function(icon, window)
 			
 			--assign a score to each game settings, and sort them into order
 			local fake_game_settings = table.Merge({
-				--[[
+				---[[
 				[2] = {
 					open = true,
 					plys = {
@@ -642,7 +673,8 @@ open_browser = function(icon, window)
 						[12] = true
 					},
 					title = "Cum Chalice Challenge"
-				}]]
+				}
+				--]]
 			}, table.Copy(game_settings))
 			
 			--determine "scores" for each game, higher score means higher placement in the list
@@ -667,70 +699,85 @@ open_browser = function(icon, window)
 			
 			--create the entries in the order determined
 			for _, data in ipairs(order) do
-				local button = vgui.Create("DButton", self)
-				local button_layout = button.PerformLayout
-				local master_index = data[1]
-				
-				--we need the entity to get name n stuff
-				local master = Entity(master_index)
-				local master_valid = IsValid(master)
-				
-				self:AddItem(button)
-				
-				button:Dock(TOP)
-				button:DockMargin(margin, margin, margin, 0)
-				button:SetText(data[2] .. " - " .. data[3])
-				button:SetHeight(browser_button_h)
-				
-				button.Paint = button_paint
-				
-				----player's avatar
-					local avatar = vgui.Create("AvatarImage", button)
+				--[[
+					local button = vgui.Create("DButton", self)
+					local button_layout = button.PerformLayout
+					local master_index = data[1]
 					
-					avatar:Dock(LEFT)
-					avatar:DockMargin(4, 4, 0, 20)
-					avatar:InvalidateLayout(true)
+					--we need the entity to get name n stuff
+					local master = Entity(master_index)
+					local master_valid = IsValid(master)
 					
-					if master_valid then avatar:SetPlayer(master, 184) end
-				
-				----player name
-					local label_host = vgui.Create("DLabel", button)
+					self:AddItem(button)
 					
-					label_host:SetContentAlignment(5)
-					label_host:SetText(master_valid and master:Nick() or "#wire_game_core.browser.invalid")
-					label_host:SetTextColor(color_dark_text)
-				
-				--make it so players can join the game if it's open
-				if data[4] then
-					function button:DoClick()
-						net.Start("wire_game_core_join")
-						net.WriteInt(master_index, 8)
-						net.SendToServer()
+					button:Dock(TOP)
+					button:DockMargin(margin, margin, margin, 0)
+					button:SetText(data[2] .. " - " .. data[3])
+					button:SetHeight(browser_button_h)
+					
+					button.Paint = button_paint
+					
+					----player's avatar
+						local avatar = vgui.Create("AvatarImage", button)
 						
-						browser:Close()
+						avatar:Dock(LEFT)
+						avatar:DockMargin(4, 4, 0, 20)
+						avatar:InvalidateLayout(true)
+						
+						if master_valid then avatar:SetPlayer(master, 184) end
+					
+					----player name
+						local label_host = vgui.Create("DLabel", button)
+						
+						label_host:SetContentAlignment(5)
+						label_host:SetText(master_valid and master:Nick() or "#wire_game_core.browser.invalid")
+						label_host:SetTextColor(color_dark_text)
+					
+					--make it so players can join the game if it's open
+					if data[4] then
+						function button:DoClick()
+							net.Start("wire_game_core_join")
+							net.WriteInt(master_index, 8)
+							net.SendToServer()
+							
+							browser:Close()
+						end
+					else
+						button:SetCursor("none")
+						button:SetEnabled(false)
 					end
-				else
-					button:SetCursor("none")
-					button:SetEnabled(false)
-				end
+					
+					--properly size stuff
+					function button:PerformLayout(w, h)
+						local avatar_size = h - 24
+						
+						avatar:SetWidth(h - 24) --24 is top margin + bottom margin
+						
+						label_host:SetPos(4, h - 20) --bottom margin of avatar
+						label_host:SetSize(avatar_size, 20)
+					end
+				]]
 				
-				--properly size stuff
-				function button:PerformLayout(w, h)
-					local avatar_size = h - 24
-					
-					avatar:SetWidth(h - 24) --24 is top margin + bottom margin
-					
-					label_host:SetPos(4, h - 20) --bottom margin of avatar
-					label_host:SetSize(avatar_size, 20)
-				end
+				local game_entry = vgui.Create("WGCBrowserGameEntry", self)
+				game_entry.FrameBrowser = browser
+				game_entry.Scroller = self
+				
+				game_entry:Dock(TOP)
+				game_entry:DockMargin(margin, margin, margin, 0)
+				
+				game_entry:SetJoinable(data[4])
+				game_entry:SetMasterIndex(data[1])
+				game_entry:SetScore(data[2])
+				game_entry:SetTitle(data[3])
+				game_entry:SetHeaderHeight(browser_button_h)
 			end
 		end
 		
 		--now call that function we made
-		scroll_bar:GenerateGameEntries()
+		scroller:GenerateGameEntries()
 		
 		--give us access for later :)
-		browser.scroll_bar = scroll_bar
+		browser.ScrollPanel = scroller
 	end
 end
 
@@ -751,6 +798,7 @@ open_request_gui = function()
 	--close and deny button, reuses the close button
 	----we can't put it in a do end block because the deny button needs this DoClick function, and that would mean accessing a value in a different scope
 		local button_close = pop_up.btnClose
+		button_close.Paint = button_paint_close
 		
 		button_close:SetText("#wire_game_core.request.deny")
 		button_close:SetTextColor(color_white)
@@ -758,14 +806,6 @@ open_request_gui = function()
 		function button_close:DoClick()
 			pop_up:Remove()
 			forward_response(-1)
-		end
-		
-		function button_close:Paint(w, h)
-			if self.Depressed or self:IsSelected() or self:GetToggle() then fl_surface_SetDrawColor(color_expression) 
-			elseif self.Hovered then fl_surface_SetDrawColor(color_dark_baseboard)
-			else fl_surface_SetDrawColor(color_dark_button) end
-			
-			fl_surface_DrawRect(0, 2, w, h - 4)
 		end
 	
 	----block button, reuses the maximize button
@@ -1393,7 +1433,7 @@ net.Receive("wire_game_core_sync", function()
 		for index, data in ipairs(held_requests) do if not game_settings[data[1]] then held_requests[index][3] = true end end
 	end
 	
-	if IsValid(browser) then browser.scroll_bar:GenerateGameEntries() end
+	if IsValid(browser) then browser.Scroller:GenerateGameEntries() end
 	if game_master_index and received_settings[game_master_index] then update_game_bar() end
 end)
 

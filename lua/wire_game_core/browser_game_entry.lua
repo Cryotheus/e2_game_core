@@ -1,18 +1,373 @@
 local PANEL = {}
 
-local associated_colors = include("colors.lua")
+--todo: clean up code style
+--silly goose do not pick up the code style of this file
 
-function PANEL:Paint(width, height)
-	if self.Depressed or self:IsSelected() or self:GetToggle() then fl_surface_SetDrawColor(color_expression)
-	elseif not self:IsEnabled() then fl_surface_SetDrawColor(color_dark_baseboard)
-	elseif self.Hovered then fl_surface_SetDrawColor(color_dark_button_hover)
-	else fl_surface_SetDrawColor(color_dark_button) end
+----colors
+	local associated_colors = include("colors.lua")
+	local color_dark_baseboard = associated_colors.color_dark_baseboard
+	local color_dark_button = associated_colors.color_dark_button
+	local color_dark_button_hover = associated_colors.color_dark_button_hover
+	local color_dark_header = associated_colors.color_dark_header
+	local color_dark_text = associated_colors.color_dark_text
+	local color_dark_track = associated_colors.color_dark_track
+	local color_expression = associated_colors.color_expression
+
+----cached functions
+	local fl_surface_DrawRect = surface.DrawRect
+	local fl_surface_DrawTexturedRect = surface.DrawTexturedRect
+	local fl_surface_SetDrawColor = surface.SetDrawColor
+
+----accessor functions
+	AccessorFunc(PANEL, "Canvas", "Canvas")
+	AccessorFunc(PANEL, "CanvasHeight", "CanvasHeight", FORCE_NUMBER)
+	AccessorFunc(PANEL, "HeaderHeight", "HeaderHeight", FORCE_NUMBER)
+	AccessorFunc(PANEL, "Master", "Master")
+	AccessorFunc(PANEL, "MasterIndex", "MasterIndex", FORCE_NUMBER)
+	AccessorFunc(PANEL, "Open", "Open", FORCE_BOOL)
+	AccessorFunc(PANEL, "Score", "Score", FORCE_NUMBER)
+	AccessorFunc(PANEL, "Title", "Title", FORCE_STRING)
+
+function PANEL:Add(new_panel)
+	local canvas = self:GetCanvas()
 	
-	fl_surface_DrawRect(0, 0, width, height)
+	new_panel:SetParent(canvas)
+	
+	for index, panel in ipairs(canvas.Contents) do if panel == new_panel then return end end
+	
+	table.insert(canvas.Contents, new_panel)
+end
+
+function PANEL:DoClick()
+	local canvas = self:GetCanvas()
+	
+	canvas:SetActive(not canvas:GetActive())
 end
 
 function PANEL:Init()
+	self:SetText("")
 	
+	self.HeaderHeight = self:GetTall()
+	
+	----header
+	do
+		local header = vgui.Create("DButton", self)
+		
+		header:Dock(TOP)
+		header:SetFont("DermaLarge")
+		header:SetHeight(self.HeaderHeight)
+		
+		function header:DoClick() self:GetParent():DoClick() end
+		
+		function header:Paint(width, height)
+			if self.Depressed or self:IsSelected() or self:GetToggle() then fl_surface_SetDrawColor(color_expression)
+			elseif not self:IsEnabled() then fl_surface_SetDrawColor(color_dark_baseboard)
+			elseif self.Hovered then fl_surface_SetDrawColor(color_dark_button_hover)
+			else fl_surface_SetDrawColor(color_dark_button) end
+			
+			fl_surface_DrawRect(0, 0, width, height)
+		end
+		
+		do --host card panel
+			local panel = vgui.Create("DButton", header)
+			
+			panel:Dock(LEFT)
+			panel:DockMargin(0, 4, 0, 4)
+			panel:SetText("")
+			
+			do --player's avatar
+				local avatar = vgui.Create("AvatarImage", panel)
+				local avatar_set_player = avatar.SetPlayer
+				
+				avatar:Dock(FILL)
+				avatar:DockMargin(4, 0, 4, 4)
+				avatar:SetMouseInputEnabled(false)
+				
+				function avatar:SetPlayer(ply, size)
+					avatar_set_player(self, ply, size)
+					
+					if IsValid(ply) then panel.SteamID64 = ply:SteamID64() end
+				end
+				
+				panel.AvatarHost = avatar
+				self.AvatarHost = avatar
+			end
+			
+			do --player name
+				--local game_entry = self
+				local label = vgui.Create("DLabel", panel)
+				
+				label:Dock(BOTTOM)
+				label:DockMargin(4, 0, 4, 0)
+				label:SetContentAlignment(5)
+				label:SetFont("DermaDefaultBold")
+				label:SetText("#wire_game_core.browser.invalid")
+				label:SetTextColor(color_white)
+				label:SetMouseInputEnabled(false)
+				
+				--[[function label:Paint(width, height)
+					surface.SetDrawColor(game_entry:IsEnabled() and color_dark_header or color_dark_track)
+					surface.DrawRect(0, 0, width, height)
+				end]]
+				
+				panel.LabelHost = label
+				self.LabelHost = label
+			end
+			
+			function panel:DoClick() if self.SteamID64 then gui.OpenURL("http://steamcommunity.com/profiles/" .. self.SteamID64) end end
+			
+			function panel:Paint() end
+			
+			function panel:PerformLayout(width, height)
+				local label_height = math.max(height - width - 4, 16)
+				
+				self.LabelHost:SetHeight(label_height)
+			end
+			
+			self.PanelHostCard = panel
+		end
+		
+		do --join button
+			local button = vgui.Create("DButton", header)
+			
+			
+			button:Dock(RIGHT)
+			button:DockMargin(0, 4, 4, 4)
+			button:SetText("Join")
+			button:SetVisible(false)
+			
+			function button:Paint(width, height)
+				if self.Depressed or self:IsSelected() or self:GetToggle() then fl_surface_SetDrawColor(color_expression)
+				elseif not self:IsEnabled() then fl_surface_SetDrawColor(color_dark_button)
+				elseif self.Hovered then fl_surface_SetDrawColor(color_dark_button_hover)
+				else fl_surface_SetDrawColor(color_dark_baseboard) end
+				
+				fl_surface_DrawRect(0, 0, width, height)
+			end
+			
+			--auto stretch vertical for the text
+			function button:PerformLayout(width, height)
+				surface.SetFont("DermaDefault")
+				self:SetWidth(math.Clamp(surface.GetTextSize(language.GetPhrase("wire_game_core.browser.join")) + 10, 64, self:GetParent():GetWide() * 0.5))
+			end
+			
+			button.GameEntry = self
+			header.ButtonJoin = button
+			self.ButtonJoin = button
+		end
+		
+		self.Header = header
+	end
+	
+	do --canvas
+		local game_entry = self
+		local panel_canvas = vgui.Create("DSizeToContents", self)
+		
+		AccessorFunc(panel_canvas, "Active", "Active", FORCE_BOOL)
+		
+		panel_canvas:SetPos(0, self:GetHeaderHeight())
+		panel_canvas:SetSize(self:GetWide(), self.CanvasHeight)
+		
+		panel_canvas.CanvasHeight = 240
+		panel_canvas.Contents = {}
+		panel_canvas.Percent = 0
+		panel_canvas.Speed = 3
+		
+		function panel_canvas:Paint(width, height) end
+		
+		function panel_canvas:PerformLayout(width, height)
+			game_entry.CanvasHeight = width
+			
+			self:SetWidth(game_entry:GetWide())
+		end
+		
+		function panel_canvas:Think()
+			local old_percent = self.Percent
+			local percent = math.Clamp(old_percent + RealFrameTime() * (self.Active and self.Speed or -self.Speed), 0, 1)
+			
+			if percent ~= old_percent then
+				self.Percent = percent
+				
+				if percent == 0 then
+					game_entry:SetHeight(game_entry:GetHeaderHeight())
+					
+					--self:InvalidateParent()
+					self:SetHeight(self.CanvasHeight)
+					self:SetVisible(false)
+				else
+					local height = self.CanvasHeight * percent
+					
+					game_entry:SetHeight(height + game_entry:GetHeaderHeight())
+					self:SetHeight(height)
+				end
+			end
+		end
+		
+		function panel_canvas:SetActive(active)
+			active = tobool(active) or false
+			
+			if self.Active ~= active then
+				self.Active = active
+				
+				if active then self:SetVisible(true)
+				else self:SetVisible(self.Percent ~= 0) end
+			end
+		end
+		
+		panel_canvas:SetActive(false)
+		self:SetCanvas(panel_canvas)
+		
+		do --add canvas stuff
+			---[[
+			do --description panel
+				local panel = vgui.Create("DPanel", panel_canvas)
+				
+				panel:Dock(FILL)
+				panel:DockMargin(4, 4, 4, 4)
+				
+				do --header
+					local label = vgui.Create("DLabel", panel)
+					
+					label:Dock(TOP)
+					label:SetAutoStretchVertical(true)
+					label:SetContentAlignment(5)
+					label:SetText("Description Header")
+					
+					panel.LabelHeader = label
+					self.LabelDescriptionHeader = label
+				end
+				
+				do --body
+					local label = vgui.Create("DLabel", panel)
+					
+					label:Dock(TOP)
+					label:SetAutoStretchVertical(true)
+					label:SetContentAlignment(7)
+					label:SetText("Description of the game you made with my core! Thank you for using this extension, I put a lot of work into it and I wouldn't want it to just disappear into the flood of crappy workshop dupe uploads.")
+					label:SetWrap(true)
+					
+					panel.LabelDescription = label
+					self.LabelDescription = label
+				end
+				
+				function panel:Paint() end
+				
+				function panel:PerformLayout(width, height) --label:DockMargin(4, 4, 4, 0)
+					local percentage = 0.8
+					
+					self.LabelDescription:DockMargin(4, height * percentage + 2, 4, 4)
+					self.LabelHeader:DockMargin(4, 4, 4, height * (1 - percentage) + 2)
+				end
+				
+				panel_canvas.PanelDescription = panel_canvas
+				self.PanelDescription = panel
+				
+				panel_canvas:Add(panel)
+			end
+			--]]
+		end
+	end
 end
 
-derma.DefineControl("WGCBrowserGameEntry", "A game entry for E2 Game Core", PANEL, "DButton")
+function PANEL:Paint(width, height)
+	fl_surface_SetDrawColor(color_dark_track)
+	fl_surface_DrawRect(0, 0, width, height)
+end
+
+function PANEL:PerformLayout(width, height)
+	local canvas = self:GetCanvas()
+	local canvas_height = canvas:GetTall()
+	local header_height = self:GetHeaderHeight()
+	
+	canvas:SetWide(width)
+	
+	self.ButtonJoin:DockMargin(0, 4, 4, header_height * 0.75 + 4)
+	self.PanelHostCard:SetWide(math.min(width * 0.2, header_height * 0.7), header_height - 8)
+end
+
+function PANEL:RemoveMaster()
+	self.Master = NULL
+	self.MasterIndex = 0
+	
+	self.AvatarHost:SetPlayer(NULL, 184)
+	self.LabelHost:SetText("#wire_game_core.browser.invalid")
+	
+	self:SetScore(0)
+end
+
+function PANEL:SetCanvasHeight(height, animate_expansion)
+	local canvas = self:GetCanvas()
+	local canvas_height = canvas.CanvasHeight
+	
+	if animate_expansion and height > canvas_height and canvas.Active then canvas.Percent = canvas.Percent * canvas_height / height end
+	
+	canvas.CanvasHeight = height
+	self.CanvasHeight = 240
+end
+
+function PANEL:SetHeaderHeight(height)
+	local canvas = self:GetCanvas()
+	
+	canvas:SetPos(0, height)
+	self.Header:SetHeight(height)
+	self:SetHeight(height + (canvas.Active and canvas:GetTall() or 0))
+	
+	self.HeaderHeight = height
+end
+
+function PANEL:SetJoinable(joinable)
+	if joinable then
+		local join_button = self.ButtonJoin
+		
+		function join_button:DoClick()
+			local master_index = self.GameEntry.MasterIndex
+			
+			if master_index and master_index > 0 then
+				net.Start("wire_game_core_join")
+				net.WriteInt(master_index, 8)
+				net.SendToServer()
+				
+				self.GameEntry.FrameBrowser:Close()
+			else self.GameEntry.Scroller:GenerateGameEntries() end
+		end
+		
+		join_button:SetVisible(true)
+	else
+		local header = self.Header
+		
+		header:SetCursor("none")
+		header:SetEnabled(false)
+		self.ButtonJoin:SetVisible(false)
+		self.Canvas:SetActive(false)
+	end
+end
+
+function PANEL:SetMaster(master)
+	self.AvatarHost:SetPlayer(master, 184)
+	self.LabelHost:SetText(master:Nick())
+	
+	self.Master = master
+end
+
+function PANEL:SetMasterIndex(master_index)
+	master_index = tonumber(master_index)
+	
+	if master_index then
+		
+		local master = Entity(master_index)
+		
+		if IsValid(master) then
+			self.MasterIndex = master_index
+			
+			self:SetMaster(master)
+			
+			return
+		end
+	end
+	
+	self:RemoveMaster()
+end
+
+function PANEL:SetTitle(text) self.Header:SetText(text) end
+
+derma.DefineControl("WGCBrowserGameEntry", "A game entry for E2 Game Core.", PANEL, "DPanel")

@@ -92,6 +92,7 @@ local ply_settings = {}			--y for restoring the player;					k: player index,		v:
 	local fl_Player_SetFOV
 	local fl_Player_SetJumpPower
 	local fl_Player_SetLadderClimbSpeed
+	local fl_Player_SetMaxArmor
 	local fl_Player_SetRunSpeed
 	local fl_Player_SetSlowWalkSpeed
 	local fl_Player_SetViewEntity = ply_meta.SetViewEntityX_GameCore or ply_meta.SetViewEntity
@@ -474,6 +475,7 @@ local function game_add(ply, master_index)
 		health = ply:Health(),
 		jump_power = ply:GetJumpPower(),
 		ladder_speed = ply:GetLadderClimbSpeed(),
+		max_armor = ply:GetMaxArmor(),
 		max_health = ply:GetMaxHealth(),
 		move_type = ply:GetMoveType(),
 		position = ply:GetPos(),
@@ -625,6 +627,7 @@ local function game_remove(ply, enum)
 	
 	fl_Entity_SetGravity(ply, settings.gravity)
 	fl_Entity_SetHealth(ply, settings.health)
+	fl_Player_SetMaxArmor(ply, settings.max_armor)
 	fl_Entity_SetMaxHealth(ply, settings.max_health)
 	fl_Entity_SetMoveType(ply, settings.move_type)
 	fl_Entity_SetPos(ply, settings.position)
@@ -708,6 +711,7 @@ fl_Player_SetCrouchedWalkSpeed = create_function_detour(ply_meta, "SetCrouchedWa
 fl_Player_SetFOV = create_function_detour(ply_meta, "SetFOV", "fov")
 fl_Player_SetJumpPower = create_function_detour(ply_meta, "SetJumpPower", "jump_power")
 fl_Player_SetLadderClimbSpeed = create_function_detour(ply_meta, "SetLadderClimbSpeed", "ladder_speed")
+fl_Player_SetMaxArmor = create_function_detour(ply_meta, "SetMaxArmor", "max_armor")
 fl_Player_SetRunSpeed = create_function_detour(ply_meta, "SetRunSpeed", "run_speed")
 fl_Player_SetSlowWalkSpeed = create_function_detour(ply_meta, "SetSlowWalkSpeed", "stroll_speed")
 fl_Player_SetWalkSpeed = create_function_detour(ply_meta, "SetWalkSpeed", "walk_speed")
@@ -1713,6 +1717,33 @@ do
 		end
 		
 		__e2setcost(10)
+		e2function number gamePlayerSetMaxArmor(amount)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				amount = fl_math_Clamp(amount, 1, game_max_health)
+				
+				game_function_players(master_index, function(ply) fl_Player_SetMaxArmor(ply, amount) end)
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
+		__e2setcost(4)
+		e2function number entity:gamePlayerSetMaxArmor(amount)
+			local is_participating = game_evaluator_player_only(self, this)
+			
+			if is_participating then
+				fl_Player_SetMaxArmor(this, fl_math_Clamp(amount, 0, game_max_health))
+				
+				return 1
+			end
+			
+			return 0
+		end
+		__e2setcost(10)
 		e2function number gamePlayerSetMaxHealth(amount)
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 			
@@ -2616,6 +2647,7 @@ hook.Add("ShouldCollide", "wire_game_core", function(ent_1, ent_2)
 		--player_collision
 		--if ent_1_master and ent_2_master then end
 		if ent_1_master ~= ent_2_master then return false end
+		if ent_1_master and ent_1_master == ent_2_master then return game_settings[ent_1_master].player_collision end
 		
 		--if ent_1_master
 	end
