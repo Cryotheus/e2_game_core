@@ -23,7 +23,7 @@ local open_browser
 local open_request_gui
 
 ----colors
-	local associated_colors = include("colors.lua")
+	local associated_colors = include("wire_game_core/colors.lua")
 	local color_button_text = associated_colors.color_button_text
 	local color_dark = associated_colors.color_dark
 	local color_dark_baseboard = associated_colors.color_dark_baseboard

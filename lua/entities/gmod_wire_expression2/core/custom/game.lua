@@ -377,7 +377,7 @@ local function create_function_detour(function_table, function_name, field, forc
 		--we have a field that we need to update
 		if force_value then
 			--set the field to the force_value when force_value is specified
-			function_table[function_name] = function(self, ...) print("detour ran! " .. function_name) debug.Trace()
+			function_table[function_name] = function(self, ...)
 				local ply_index = self:EntIndex()
 				
 				if game_masters[ply_index] then ply_settings[ply_index][field] = force_value
@@ -385,7 +385,7 @@ local function create_function_detour(function_table, function_name, field, forc
 			end
 		else
 			--take the value from the function and set the field to it
-			function_table[function_name] = function(self, interest, ...) print("detour ran! " .. function_name) debug.Trace()
+			function_table[function_name] = function(self, interest, ...)
 				local ply_index = self:EntIndex()
 				
 				if game_masters[ply_index] then ply_settings[ply_index][field] = interest
@@ -394,7 +394,7 @@ local function create_function_detour(function_table, function_name, field, forc
 		end
 	else
 		--we don't have a value to provide to ply_settings, just block it if they are in game
-		function_table[function_name] = function(self, ...) print("detour ran! " .. function_name) debug.Trace() if not game_masters[self:EntIndex()] then existing_function(self, ...) end end
+		function_table[function_name] = function(self, ...) if not game_masters[self:EntIndex()] then existing_function(self, ...) end end
 	end
 	
 	return existing_function
@@ -491,7 +491,8 @@ local function game_add(ply, master_index)
 	
 	ply:SetDeaths(0)
 	ply:SetFrags(0)
-	ply:SetMoveType(MOVETYPE_WALK)
+	
+	fl_Entity_SetMoveType(ply, MOVETYPE_WALK)
 	
 	if pac_present then ply:ConCommand("pac_clear_parts") end
 	if ply:InVehicle() then ply:ExitVehicle() end
@@ -739,7 +740,7 @@ fl_Player_StripWeapon = create_function_header(ply_meta, "StripWeapon", function
 function GAMEMODE:PlayerDeathThink(ply, ...)
 	local master_index = game_masters[ply:EntIndex()]
 	
-	if master_index then game_respawn_functions[game_settings[master_index].respawn_mode](ply, master_index)
+	if master_index then game_respawn_functions[game_settings[master_index].defaults.respawn_mode](ply, master_index)
 	else fl_GAMEMODE_PlayerDeathThink(GAMEMODE, ply, ...) end
 end
 
