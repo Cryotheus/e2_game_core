@@ -1,9 +1,10 @@
---at this point I am thinking of grouping some less commonly used ones together and sending a 2 bit uint to identify what its purpose is
+--at this point I am thinking of grouping some less commonly used ones together and sending a uint to identify what its purpose is
 --this would cut down on the amount of network strings I am using, but increase code complexity a little bit
 util.AddNetworkString("wire_game_core_block")
 util.AddNetworkString("wire_game_core_block_update")
 util.AddNetworkString("wire_game_core_join")
 util.AddNetworkString("wire_game_core_leave")
+util.AddNetworkString("wire_game_core_message")
 util.AddNetworkString("wire_game_core_masters")
 util.AddNetworkString("wire_game_core_request")
 util.AddNetworkString("wire_game_core_sounds")
@@ -18,7 +19,10 @@ local game_cameras = {}			--y for cameras the master makes;				k: master index,	
 local game_constructor = {}		--y for getting the game chip and master;		k: chip/master index,	v: master/chip index
 local game_damage_dealt = {}	--y stores dealt damage multipliers;			k: player index,		v: multiplier
 local game_damage_taken = {}	--y stores dealt damage multipliers;			k: player index,		v: multiplier
+local game_describe_delay = {}	--n stores reset times for game descriptions	k: master index,		v: when they can next set the description
 local game_masters = {}			--y used to fetch the player's game master;		k: player index,		v: master index
+local game_message_counts = {}	--y stores the amount of messages sent so far	k: player index,		v: count of message
+local game_message_resets = {}	--y stores reset times for message cooldowns	k: player index,		v: CurTime when it happens
 local game_request_delays = {}	--y to delay requests to certain players;		k: master index,		v: table where (k: recipient index, v: cur_time when they can send another request to the player)
 local game_respawns = {}		--y used to store the player's respawn delay;	k: player index,		v: time when the player can respawn
 local game_settings = {}		--y stores the settings for each players game;	k: master index,		v: table where (k: setting name, v: setting value)
@@ -52,26 +56,36 @@ local ply_settings = {}			--y for restoring the player;					k: player index,		v:
 ----convars
 	local convar_limit_settings = {FCVAR_ARCHIVE, FCVAR_NOTIFY}
 	
-	local wire_game_core_max_armor = CreateConVar("wire_game_core_max_armor", "32768", convar_limit_settings, "The maximum amount of armor a player may be given.", 100, 32768)
+	local wire_game_core_description_delay = CreateConVar("wire_game_core_description_delay", "5", convar_limit_settings, "How long to wait before allowing the player to update their game description.", 1, 60)
+	local wire_game_core_max_armor = CreateConVar("wire_game_core_max_armor", "32768", convar_limit_settings, "The maximum amount of armor a player may be given.", 100, 32768)--game_max_description_length = wire_game_core_max_description_length:GetInt()
 	local wire_game_core_max_camera_lerp = CreateConVar("wire_game_core_max_camera_lerp", "3600", convar_limit_settings, "The longest a camera lerp can be, in seconds.", 0, 36000)
 	local wire_game_core_max_cameras = CreateConVar("wire_game_core_max_cameras", "20", convar_limit_settings, "The maximum amount of point cameras a player may spawn.", 100, 0)
-	local wire_game_core_max_damage_multiplier = CreateConVar("wire_game_core_max_damage_multiplier", "1000", convar_limit_settings, "The maximum amount of armor a player may be given.", 2, 200000)
+	local wire_game_core_max_damage_multiplier = CreateConVar("wire_game_core_max_damage_multiplier", "1000", convar_limit_settings, "The highest the damage multiplier can be.", 2, 1000)
+	local wire_game_core_max_description_length = CreateConVar("wire_game_core_max_description_length", "1024", convar_limit_settings, "The maximum length a game's description can be.", 1, 32768)
 	local wire_game_core_max_force = CreateConVar("wire_game_core_max_force", "3500", convar_limit_settings, "The maximum amount of force that may be applied to a player.", 100, 3500)
 	local wire_game_core_max_gravity = CreateConVar("wire_game_core_max_gravity", "10", convar_limit_settings, "The maximum amount of health a player may be given.", 1, 100)
 	local wire_game_core_max_health = CreateConVar("wire_game_core_max_health", "2147483647", convar_limit_settings, "The maximum amount of health a player may be given.", 100, 2147483647)
-	local wire_game_core_max_sounds = CreateConVar("wire_game_core_max_sounds", "10", convar_limit_settings, "How many sounds the e2 function gamePlayerPlaySound can send to a client in a single tick. This is per client. All sounds are sent in a single net message, the sound path is also truncated to 192 characters.", 0, 100)
+	local wire_game_core_max_message_components = CreateConVar("wire_game_core_max_message_components", "32", convar_limit_settings, "The maximum amount of messages the game master may send to their player per second.", 1, 32768)
+	local wire_game_core_max_message_length = CreateConVar("wire_game_core_max_message_length", "384", convar_limit_settings, "The maximum length a game message to a player can be.", 1, 32768)
+	local wire_game_core_max_messages = CreateConVar("wire_game_core_max_messages", "10", convar_limit_settings, "The maximum amount of messages the game master may send to their player per second.", 0, 32768)
+	local wire_game_core_max_sounds = CreateConVar("wire_game_core_max_sounds", "4", convar_limit_settings, "How many sounds the e2 function gamePlayerPlaySound can send to a client in a single tick. This is per client. All sounds are sent in a single net message, the sound path is also truncated to 192 characters.", 0, 32768)
 	local wire_game_core_max_speed = CreateConVar("wire_game_core_max_speed", "3500", convar_limit_settings, "The maximum speed a player can have for any movement type.", 600, 3500)
 	local wire_game_core_min_gravity = CreateConVar("wire_game_core_min_gravity", "10", convar_limit_settings, "The maximum amount of health a player may be given.", -100, 1)
 	local wire_game_core_request_delay = CreateConVar("wire_game_core_request_delay", "5", convar_limit_settings, "How long before the player can receive another game request from the same player.", 1, 60)
 
 ----convars cached values, make sure to give the convar a call back!
+	local game_description_delay = wire_game_core_description_delay:GetFloat()
 	local game_max_armor = wire_game_core_max_armor:GetInt()
 	local game_max_camera_lerp = wire_game_core_max_camera_lerp:GetFloat()
 	local game_max_cameras = wire_game_core_max_cameras:GetInt()
 	local game_max_damage_multiplier = wire_game_core_max_damage_multiplier:GetFloat()
+	local game_max_description_length = wire_game_core_max_description_length:GetInt()
 	local game_max_force = wire_game_core_max_force:GetFloat()
 	local game_max_gravity = wire_game_core_max_gravity:GetFloat()
 	local game_max_health = wire_game_core_max_health:GetInt()
+	local game_max_message_components = wire_game_core_max_message_components:GetInt()
+	local game_max_message_length = wire_game_core_max_message_length:GetInt()
+	local game_max_messages = wire_game_core_max_messages:GetInt()
 	local game_max_speed = wire_game_core_max_speed:GetFloat()
 	local game_min_gravity = wire_game_core_min_gravity:GetFloat()
 	local game_request_delay = wire_game_core_request_delay:GetFloat()
@@ -89,6 +103,7 @@ local ply_settings = {}			--y for restoring the player;					k: player index,		v:
 	local fl_Player_RemoveAllItems
 	local fl_Player_SetArmor
 	local fl_Player_SetCrouchedWalkSpeed
+	local fl_Player_SetEyeAngles
 	local fl_Player_SetFOV
 	local fl_Player_SetJumpPower
 	local fl_Player_SetLadderClimbSpeed
@@ -143,7 +158,6 @@ local game_constants = { --in e2, these are all prefixed with _GAME, meaning REQ
 }
 
 local game_default_settings = {
-	block_suicide = false,
 	defaults = {
 		armor = 0,
 		crouch_speed = 0.3,
@@ -154,6 +168,7 @@ local game_default_settings = {
 		health = 100,
 		jump_power = 200,
 		ladder_speed = 200,
+		max_armor = 100,
 		max_health = 100,
 		push = push_mod_hook and true or false,
 		respawn_delay = 5,
@@ -164,11 +179,18 @@ local game_default_settings = {
 	},
 	
 	block_fall_damage = false,
+	block_suicide = false,
 	open = false,
 	player_collision = true,
 	plys = {},
 	requests = {},
 	title = "Unnamed Game"
+}
+
+local game_message_type_ids = {
+	s = true,
+	v = true,
+	xv4 = true
 }
 
 --game_respawns
@@ -189,6 +211,7 @@ local game_respawn_functions = {
 }
 
 local game_synced_settings = { --contains the settings that are sent to clients; k: setting name, v: true
+	description = true,
 	open = true,
 	plys = true,
 	title = true
@@ -236,8 +259,17 @@ local function add_masters_sync_request(ply_index)
 	queue_game_masters_check = true
 end
 
-local function add_sync_request(master_index)
-	queue_game_sync[master_index] = true
+local function add_sync_request(master_index, key)
+	local current_sync = queue_game_sync[master_index]
+	
+	--if we set this to true, sync everything instead of cherry picking
+	if current_sync == true then return end
+	
+	if key then
+		if current_sync then queue_game_sync[master_index][key] = true
+		else queue_game_sync[master_index] = {[key] = true} end
+	else queue_game_sync[master_index] = true end
+	
 	queue_game_sync_check = true
 end
 
@@ -430,6 +462,7 @@ local function game_acclimate(ply, ply_index, defaults)
 	fl_Player_SetCrouchedWalkSpeed(ply, defaults.crouch_speed)
 	fl_Player_SetJumpPower(ply, defaults.jump_power)
 	fl_Player_SetLadderClimbSpeed(ply, defaults.ladder_speed)
+	fl_Player_SetMaxArmor(ply, defaults.max_armor)
 	fl_Player_SetRunSpeed(ply, defaults.run_speed)
 	fl_Player_SetSlowWalkSpeed(ply, defaults.stroll_speed)
 	fl_Player_SetWalkSpeed(ply, defaults.walk_speed)
@@ -504,16 +537,25 @@ local function game_add(ply, master_index)
 	
 	--sync!
 	add_masters_sync_request(ply_index)
-	add_sync_request(master_index)
+	add_sync_request(master_index, "plys")
 	net.Start("wire_game_core_join")
 	net.WriteUInt(master_index, 8)
 	
+	--broken, supposed to make them switch back to their original weapon
 	if ply_weapon_class then
 		net.WriteBool(true)
 		net.WriteString(ply_weapon_class)
 	else net.WriteBool(false) end
 	
 	net.Send(ply)
+	
+	--autobox
+	if ply.AAT_GetBadgeProgress then
+		local count = table.Count(game_settings[master_index].plys)
+		local master = Entity(master_index)
+		
+		if master:AAT_GetBadgeProgress("game_core") < count then master:AAT_SetBadgeProgress("game_core", count) end
+	end
 end
 
 local function game_evaluator_constructor_only(self)
@@ -586,7 +628,7 @@ local function game_remove(ply, enum)
 	end
 	
 	add_masters_sync_request(ply_index)
-	add_sync_request(master_index)
+	add_sync_request(master_index, "plys")
 	net.Start("wire_game_core_leave")
 	net.Send(ply)
 	
@@ -658,6 +700,17 @@ local function game_remove_all(master_index, forced)
 	game_function_players(master_index, function(ply) if IsValid(ply) then game_remove(ply, enum) end end)
 end
 
+local function game_write_message(message_table, new_line, notification_duration)
+	local notify = notification_duration > 0 and true or false
+	
+	net.Start("wire_game_core_message")
+	net.WriteTable(message_table)
+	net.WriteBool(new_line)
+	net.WriteBool(notify)
+	
+	if notify then net.WriteFloat(notification_duration) end
+end
+
 local function game_set_closed(master_index, forced)
 	--close a game, and remove all players, forced is if the LEAVE_REMOVED enum should be provided to game_remove
 	add_sync_request(master_index)
@@ -668,6 +721,8 @@ local function game_set_closed(master_index, forced)
 	game_constructor[master_index] = nil
 	game_settings[master_index] = nil
 end
+
+local function get_owner(context, entity) return E2Lib.getOwner(context, entity) end
 
 local function give_weapon(ply, master, weapon_class, supress_ammo)
 	--give a player a weapon with the master's restrictions
@@ -690,6 +745,45 @@ local function normalized_angle(pitch, yaw, roll)
 	return ian(pitch) and ian(yaw) and ian(roll) and Angle(pitch, yaw, roll):Normalize() or false
 end
 
+local function owned_by_master(context, entity)
+	--game_masters[ply:EntIndex()]
+	--game_constructor[master_index]
+	--Entity(game_constructor[master_index]).context
+	local owner = get_owner(context, entity)
+	
+	return IsValid(owner) and owner:EntIndex() == game_constructor[context.entity:EntIndex()]
+end
+
+local function player_can_interact(ply, entity)
+	local master_index = game_masters[ply:EntIndex()]
+	
+	if master_index then return owned_by_master(Entity(game_constructor[master_index]).context, entity) end
+end
+
+local function parse_message(type_ids, ...)
+	local length_remaining = game_max_message_length
+	local message_table = {}
+	
+	for index, value in ipairs({...}) do
+		local type_id = type_ids[index]
+		
+		if game_message_type_ids[type_id] then
+			if type_id == "s" then
+				value = string.Left(value, length_remaining)
+				length_remaining = length_remaining - #value
+			end
+			
+			table.insert(message_table, value)
+			
+			if length_remaining <= 0 then break end
+		end
+		
+		if index == game_max_message_components then break end
+	end
+	
+	return message_table
+end
+
 --post function setup
 E2Lib.RegisterExtension("game", false,
 	"Allows players to have more control over other players, as long as the other player consents. Players will be restored to their original state (including position), upon leaving a game.",
@@ -708,6 +802,7 @@ fl_Player_GodEnable = create_function_detour(ply_meta, "GodEnable", "god", true)
 
 fl_Player_SetArmor = create_function_detour(ply_meta, "SetArmor", "armor")
 fl_Player_SetCrouchedWalkSpeed = create_function_detour(ply_meta, "SetCrouchedWalkSpeed", "crouch_speed")
+fl_Player_SetEyeAngles = create_function_detour(ply_meta, "SetEyeAngles", "angle")
 fl_Player_SetFOV = create_function_detour(ply_meta, "SetFOV", "fov")
 fl_Player_SetJumpPower = create_function_detour(ply_meta, "SetJumpPower", "jump_power")
 fl_Player_SetLadderClimbSpeed = create_function_detour(ply_meta, "SetLadderClimbSpeed", "ladder_speed")
@@ -1062,10 +1157,11 @@ do
 		return 0
 	end
 end
-----SwitchToDefaultWeapon
+
+--SwitchToDefaultWeapon
 ----game management
 do
-	--player management
+	--management
 	do
 		__e2setcost(10)
 		e2function number gameClose()
@@ -1088,14 +1184,10 @@ do
 			
 			if game_constructor[master_index] then return 0 end
 			
-			if not game_settings[master_index] then
-				--this happened ONCE before, and I want to know if it ever happens again
-				print("\nvvv PLEASE REPORT THIS TO THE DEVELOPER vvv\n[Game Core] Looks like game_settings was not constructed when we opened the game... here's the trace:")
-				debug.Trace()
-				print("Constructing...\n^^^ PLEASE REPORT THIS TO THE DEVELOPER ^^^\n")
-				
-				construct_game_settings(master_index)
-			end
+			--the game can be opened when game_settings is not created
+			--this happens when another e2 closes the game after this e2 is constructed but before the game opens... interesting
+			--this can be done by spawning an e2 when one is queued for upload
+			if not game_settings[master_index] then construct_game_settings(master_index) end
 			
 			game_constructor[chip_index] = master_index
 			game_constructor[master_index] = chip_index
@@ -1103,26 +1195,6 @@ do
 			add_sync_request(master_index)
 			
 			return 1
-		end
-		
-		__e2setcost(5)
-		e2function number gamePlayerCount()
-			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-			
-			if is_constructor then return table.Count(game_settings[master_index].plys) end
-			
-			return -1
-		end
-		
-		__e2setcost(6)
-		e2function number entity:gamePlayerCount()
-			if IsValid(this) and this.context then
-				local is_constructor, chip_index, master_index = game_evaluator_constructor_only(this.context)
-				
-				if master_index then return table.Count(game_settings[master_index].plys) end
-			end
-			
-			return -1
 		end
 		
 		__e2setcost(25)
@@ -1159,36 +1231,6 @@ do
 				local plys = {}
 				
 				game_function_players(master_index, function(ply, ply_index) table.insert(plys, ply) end)
-				
-				return plys
-			end
-			
-			return {}
-		end
-		
-		__e2setcost(6)
-		e2function array gamePlayersAlive()
-			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-			
-			if is_constructor then
-				local plys = {}
-				
-				game_function_players(master_index, function(ply, ply_index) if ply:Alive() then table.insert(plys, ply) end end)
-				
-				return plys
-			end
-			
-			return {}
-		end
-		
-		__e2setcost(6)
-		e2function array gamePlayersDead()
-			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-			
-			if is_constructor then
-				local plys = {}
-				
-				game_function_players(master_index, function(ply, ply_index) if not ply:Alive() then table.insert(plys, ply) end end)
 				
 				return plys
 			end
@@ -1245,13 +1287,28 @@ do
 			
 			return game_constants.REQUEST_UNKNOWN
 		end
-
-		__e2setcost(3)
+		
+		__e2setcost(4)
+		e2function number gameSetDescription(string description)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor and not game_describe_delay[master_index] then
+				add_sync_request(master_index, "description")
+				
+				game_describe_delay[master_index] = CurTime() + game_description_delay
+				game_settings[master_index].description = string.sub(description, 1, 1024)
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
 		e2function number gameSetJoinable(joinable)
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 			
 			if is_constructor then
-				add_sync_request(master_index)
+				add_sync_request(master_index, "open")
 				
 				game_settings[master_index].open = joinable ~= 0 and true or false
 				
@@ -1260,13 +1317,12 @@ do
 			
 			return 0
 		end
-
-		__e2setcost(3)
+		
 		e2function number gameSetTitle(string title)
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 			
 			if is_constructor then
-				add_sync_request(master_index)
+				add_sync_request(master_index, "title")
 				
 				game_settings[master_index].title = string.sub(title, 1, 64)
 				
@@ -1274,6 +1330,65 @@ do
 			end
 			
 			return 0
+		end
+	end
+	
+	do --returns
+		
+		__e2setcost(1)
+		e2function number gameDescriptionDelay() return game_description_delay end
+		e2function number gameMessageMax() return game_max_messages end
+		e2function number gameMessageMaxComponents() return game_max_message_components end
+		e2function number gameMessageMaxLength() return game_max_message_length end
+		
+		__e2setcost(4)
+		e2function number gamePlayerCount()
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then return table.Count(game_settings[master_index].plys) end
+			
+			return -1
+		end
+		
+		__e2setcost(5)
+		e2function number entity:gamePlayerCount()
+			if IsValid(this) and this.context then
+				local is_constructor, chip_index, master_index = game_evaluator_constructor_only(this.context)
+				
+				if master_index then return table.Count(game_settings[master_index].plys) end
+			end
+			
+			return -1
+		end
+		
+		__e2setcost(5)
+		e2function array gamePlayersAlive()
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				local plys = {}
+				
+				game_function_players(master_index, function(ply, ply_index) if ply:Alive() then table.insert(plys, ply) end end)
+				
+				return plys
+			end
+			
+			return {}
+		end
+		
+		__e2setcost(5)
+		e2function array gamePlayersDead()
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				local plys = {}
+				
+				game_function_players(master_index, function(ply, ply_index) if not ply:Alive() then table.insert(plys, ply) end end)
+				
+				return plys
+			end
+			
+			return {}
 		end
 	end
 	
@@ -1309,6 +1424,9 @@ do
 			
 			if is_constructor then
 				game_settings[master_index].player_collision = enabled == 0 and true or false
+				
+				--we might want to make it so this can't be changed while players are in game
+				game_function_players(master_index, function(ply) ply:CollisionRulesChanged() end)
 				
 				return 1
 			end
@@ -1441,6 +1559,18 @@ do
 		return 0
 	end
 	
+	e2function number gameSetDefaultMaxArmor(max)
+		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+		
+		if is_constructor then
+			game_settings[master_index].defaults.max_armor = fl_math_Clamp(max, 1, 1000)
+			
+			return 1
+		end
+		
+		return 0
+	end
+	
 	e2function number gameSetDefaultRespawnDelay(delay)
 		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 		
@@ -1457,7 +1587,7 @@ do
 		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 		
 		if is_constructor then
-			game_settings[master_index].respawn_mode = enum > 0 and enum < 5 and enum or 2
+			game_settings[master_index].defaults.respawn_mode = enum > 0 and enum < 5 and enum or 2
 			
 			return 1
 		end
@@ -1799,7 +1929,7 @@ do
 				local angle = normalized_angle(angle[1], angle[2], angle[3])
 				
 				if angle then
-					this:SetEyeAngles(angle)
+					fl_Player_SetEyeAngles(this, angle)
 					
 					return 1
 				end
@@ -1816,7 +1946,140 @@ do
 				local position = clamp_to_map_bounds(position[1], position[2], position[3])
 				
 				if position then
-					this:SetPos(position)
+					fl_Entity_SetPos(this, position)
+					
+					return 1
+				end
+			end
+			
+			return 0
+		end
+	end
+	
+	--messaging
+	do
+		__e2setcost(12)
+		e2function number entity:gamePlayerMessage(notification_duration, ...)
+			local is_participating, ply_index, chip_index, master_index = game_evaluator_player_only(self, this)
+			
+			if is_participating then
+				local message_table = parse_message(typeids, ...)
+				
+				if table.IsEmpty(message_table) then return 0 end
+				
+				local count = game_message_counts[ply_index] or 0
+				
+				if count < game_max_messages then
+					if count > 0 then game_message_counts[ply_index] = count + 1
+					else
+						game_message_counts[ply_index] = 1
+						game_message_resets[ply_index] = CurTime() + 1
+					end
+					
+					game_write_message(message_table, true, notification_duration)
+					net.Send(this)
+				end
+			end
+			
+			return 1
+		end
+		
+		e2function number entity:gamePlayerMessage(notification_duration, new_line, ...)
+			local is_participating, ply_index, chip_index, master_index = game_evaluator_player_only(self, this)
+			
+			if is_participating then
+				local message_table = parse_message(typeids, ...)
+				
+				if table.IsEmpty(message_table) then return 0 end
+				
+				local count = game_message_counts[ply_index] or 0
+				
+				if count < game_max_messages then
+					if count > 0 then game_message_counts[ply_index] = count + 1
+					else
+						game_message_counts[ply_index] = 1
+						game_message_resets[ply_index] = CurTime() + 1
+					end
+					
+					game_write_message(message_table, new_line ~= 0, notification_duration)
+					net.Send(this)
+				end
+			end
+			
+			return 1
+		end
+		
+		__e2setcost(30)
+		e2function number gamePlayerMessage(notification_duration, ...)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				local message_table = parse_message(typeids, ...)
+				
+				if table.IsEmpty(message_table) then return 0 end
+				
+				local filter = RecipientFilter()
+				local reset_time = CurTime() + 1
+				local send = false
+				
+				game_function_players(master_index, function(ply, ply_index)
+					local count = game_message_counts[ply_index] or 0
+					
+					if count < game_max_messages then
+						if count > 0 then game_message_counts[ply_index] = count + 1
+						else
+							game_message_counts[ply_index] = 1
+							game_message_resets[ply_index] = reset_time
+						end
+						
+						send = true
+						
+						filter:AddPlayer(ply)
+					end
+				end)
+				
+				if send then
+					game_write_message(message_table, true, notification_duration)
+					net.Send(filter)
+					
+					return 1
+				end
+			end
+			
+			return 0
+		end
+		
+		e2function number gamePlayerMessage(notification_duration, new_line, ...)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				local message_table = parse_message(typeids, ...)
+				
+				if table.IsEmpty(message_table) then return 0 end
+				
+				local filter = RecipientFilter()
+				local reset_time = CurTime() + 1
+				local send = false
+				
+				game_function_players(master_index, function(ply, ply_index)
+					local count = game_message_counts[ply_index] or 0
+					
+					if count < game_max_messages then
+						if count > 0 then game_message_counts[ply_index] = count + 1
+						else
+							game_message_counts[ply_index] = 1
+							game_message_resets[ply_index] = reset_time
+						end
+						
+						send = true
+						
+						filter:AddPlayer(ply)
+					end
+				end)
+				
+				if send then
+					game_write_message(message_table, new_line ~= 0, notification_duration)
+					net.Send(filter)
 					
 					return 1
 				end
@@ -2472,43 +2735,41 @@ concommand.Add("wire_game_core_debug_cameras", function()
 	PrintTable(game_cameras, 1)
 	print("Player cameras")
 	PrintTable(ply_cameras, 1)
-end, nil, "Debuge for game core, shows info about cameras.")
+end, nil, "Debug for game core, shows info about cameras.")
 
 concommand.Add("wire_game_core_debug_settings", function()
 	print("Game masters")
 	PrintTable(game_masters, 1)
 	print("Game settings")
 	PrintTable(game_settings, 1)
-end, nil, "Debuge for game core, shows info about cameras.")
+end, nil, "Debug for game core, shows info about cameras.")
 
 --cvars
+--new and old value is funky sometimes, just use the get functions
+cvars.AddChangeCallback("wire_game_core_description_delay", function() game_description_delay = wire_game_core_description_delay:GetFloat() end)
 cvars.AddChangeCallback("wire_game_core_max_armor", function() game_max_armor = wire_game_core_max_armor:GetInt() end)
 cvars.AddChangeCallback("wire_game_core_max_camera_lerp", function() game_max_camera_lerp = wire_game_core_max_camera_lerp:GetFloat() end)
 cvars.AddChangeCallback("wire_game_core_max_cameras", function() game_max_cameras = wire_game_core_max_cameras:GetInt() end)
 cvars.AddChangeCallback("wire_game_core_max_damage_multiplier", function() game_max_damage_multiplier = wire_game_core_max_damage_multiplier:GetFloat() end)
+cvars.AddChangeCallback("wire_game_core_max_description_length", function() game_max_description_length = wire_game_core_max_description_length:GetInt() end)
 cvars.AddChangeCallback("wire_game_core_max_force", function() game_max_force = wire_game_core_max_force:GetFloat() end)
 cvars.AddChangeCallback("wire_game_core_max_gravity", function() game_max_gravity = wire_game_core_max_gravity:GetFloat() end)
 cvars.AddChangeCallback("wire_game_core_max_health", function() game_max_health = wire_game_core_max_health:GetInt() end)
+cvars.AddChangeCallback("wire_game_core_max_message_components", function() game_max_message_components = wire_game_core_max_message_components:GetInt() end)
+cvars.AddChangeCallback("wire_game_core_max_message_length", function() game_max_message_length = wire_game_core_max_message_length:GetInt() end)
+cvars.AddChangeCallback("wire_game_core_max_messages", function() game_max_messages = wire_game_core_max_messages:GetInt() end)
 cvars.AddChangeCallback("wire_game_core_max_sounds", function() queue_game_sounds_max = wire_game_core_max_sounds:GetInt() end)
 cvars.AddChangeCallback("wire_game_core_max_speed", function() game_max_speed = wire_game_core_max_speed:GetFloat() end)
 cvars.AddChangeCallback("wire_game_core_min_gravity", function() game_min_gravity = wire_game_core_min_gravity:GetFloat() end)
 cvars.AddChangeCallback("wire_game_core_request_delay", function() game_request_delay = wire_game_core_request_delay:GetFloat() end)
 
---hooks
+--hooks PhysgunPickup
+hook.Add("AllowPlayerPickup", "wire_game_core", function(...) print("debug!, AllowPlayerPickup", ...) player_can_interact(...) end)
 hook.Add("CanArmDupe", "wire_game_core", active_game_inv)
 hook.Add("CanDrive", "wire_game_core", active_game_inv)
+hook.Add("CanPlayerEnterVehicle", "wire_game_core", function(...) print("debug!, CanPlayerEnterVehicle", ...) player_can_interact(...) end)
 hook.Add("CanProperty", "wire_game_core", active_game_inv)
 hook.Add("CanTool", "wire_game_core", active_game_inv)
-
-hook.Add("CanPlayerEnterVehicle", "wire_game_core", function(ply, vehicle)
-	local master_index = game_masters[ply:EntIndex()]
-	
-	if master_index then
-		local context = Entity(game_constructor[master_index]).context
-		
-		return E2Lib.getOwner(context, vehicle) == Entity(master_index)
-	end
-end)
 
 hook.Add("CanPlayerSuicide", "wire_game_core", function(ply)
 	local master_index = game_masters[ply:EntIndex()]
@@ -2546,6 +2807,11 @@ hook.Add("GetFallDamage", "wire_game_core", function(ply)
 	
 	if master_index and game_settings[master_index].block_fall_damage then return 0 end
 end)
+
+hook.Add("GravGunPickupAllowed", "wire_game_core", function(...) print("debug!, GravGunPickupAllowed", ...) player_can_interact(...) end)
+hook.Add("PhysgunPickup", "wire_game_core", function(...) print("debug!, PhysgunPickup", ...) player_can_interact(...) end)
+hook.Add("PlayerCanPickupItem", "wire_game_core", function(...) print("debug!, PlayerCanPickupItem", ...) player_can_interact(...) end)
+hook.Add("PlayerCanPickupWeapon", "wire_game_core", function(...) print("debug!, PlayerCanPickupWeapon", ...) player_can_interact(...) end)
 
 hook.Add("PlayerDeath", "wire_game_core", function(victim, inflictor, attacker)
 	local victim_index = victim:EntIndex()
@@ -2644,19 +2910,14 @@ hook.Add("ShouldCollide", "wire_game_core", function(ent_1, ent_2)
 		local ent_1_master = game_masters[ent_1:EntIndex()]
 		local ent_2_master = game_masters[ent_2:EntIndex()]
 		
-		--player_collision
-		--if ent_1_master and ent_2_master then end
-		if ent_1_master ~= ent_2_master then return false end
 		if ent_1_master and ent_1_master == ent_2_master then return game_settings[ent_1_master].player_collision end
-		
-		--if ent_1_master
+		if ent_1_master ~= ent_2_master then return false end
 	end
 	
 	return true
 end)
 
 hook.Add("Think", "wire_game_core", function()
-	--I need a better queuing system
 	local cur_time = CurTime()
 	
 	if queue_game_masters_check then
@@ -2727,14 +2988,14 @@ hook.Add("Think", "wire_game_core", function()
 			if IsValid(recipient) and not queue_game_sync_full[recipient:EntIndex()] then table.insert(recipients, recipient) end
 		end
 		
-		for master_index in pairs(queue_game_sync) do
+		for master_index, syncs in pairs(queue_game_sync) do
 			local settings = game_settings[master_index]
 			
 			if settings then
 				send[master_index] = {}
 				
 				for key, value in pairs(settings) do
-					if game_synced_settings[key] then
+					if game_synced_settings[key] and syncs == true or istable(syncs) and syncs[key] then
 						--we only want certain things networked
 						send[master_index][key] = value
 					end 
@@ -2752,6 +3013,7 @@ hook.Add("Think", "wire_game_core", function()
 	
 	if queue_game_sync_full_check then
 		--also I'm thinking of making this compressed, but right now (11:42 PM, July 2nd 2020) I won't bother
+		--wew it's been a long time, yeah no we don't need to compress this, we need to stop using write table lol ((20210214) 15:33, February 14th 2021)
 		local recipients = {}
 		local send = {}
 		
@@ -2784,6 +3046,11 @@ hook.Add("Think", "wire_game_core", function()
 		queue_game_sync_full_check = false
 	end
 	
+	--down below are my recreations of the timer library!
+	--because the timer library is evil, and deadly, and everything in this game is against me, and wants me dead
+	--description setting delays
+	for master_index, reset_time in pairs(game_describe_delay) do if cur_time > reset_time then game_describe_delay[master_index] = nil end end
+	
 	--for request delays, to keep players from spamming them
 	for master_index, delays in pairs(game_request_delays) do
 		local no_delays = true
@@ -2794,6 +3061,14 @@ hook.Add("Think", "wire_game_core", function()
 		end
 		
 		if no_delays then game_request_delays[master_index] = nil end
+	end
+	
+	--message count and resets
+	for ply_index, reset_time in pairs(game_message_resets) do
+		if cur_time > reset_time then
+			game_message_counts[ply_index] = nil
+			game_message_resets[ply_index] = nil
+		end
 	end
 end)
 

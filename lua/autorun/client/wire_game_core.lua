@@ -10,6 +10,7 @@ local held_requests = {}			--y stores requests the player has received;		k: sequ
 local player_physgun_colors = {}	--y stores the color of the player's physgun;		k: player index,		v: color
 local player_visibility = 1
 
+local context_menu_open = false
 local game_master
 local game_master_index
 local last_alive = false
@@ -46,6 +47,8 @@ local open_request_gui
 	local browser
 	local browser_baseboard_h
 	local browser_button_h
+	local browser_cogs = {}
+	local browser_cogs_2 = {}
 	local browser_h
 	local browser_icon_material = Material("vgui/wire_game_core/icon.png")
 	local browser_icon_size
@@ -59,6 +62,7 @@ local open_request_gui
 	local debug_panel_cogs
 	local game_bar
 	local player_visibility_function
+	local game_bar_animation_curve = math.pi * 0.5
 	local game_bar_button_hide_y
 	local game_bar_button_leave_h
 	local game_bar_button_leave_w
@@ -343,8 +347,6 @@ local function calc_vars()
 	--so we get almost 5 entries to fit
 	browser_button_h = (browser_h - browser_baseboard_h - header) * 0.2
 	
-	game_bar_animation_curve = 0.5
-	game_bar_animation_duration = 0.3
 	game_bar_h = scr_h * 0.15
 	game_bar_w = scr_w * 0.4
 	game_bar_x = (scr_w - game_bar_w) * 0.5
@@ -377,6 +379,129 @@ local function calc_vars()
 	
 	pop_up_baseboard_h = pop_up_h - pop_up_button_accept_y + margin_double
 	pop_up_baseboard_y = pop_up_button_accept_y - margin
+	
+	--what
+	
+	browser_cogs = calc_cogs(10, 1, 0, 0, {
+		{
+			angle = 45,
+			offset = 6.25,
+			size = 2
+		},
+		{
+			angle = 30,
+			offset = 0,
+			size = 1
+		},
+		{
+			angle = -60,
+			offset = 3.5,
+			size = 1
+		},
+		{
+			angle = -60,
+			offset = 6.25,
+			size = 0.5
+		},
+		{
+			angle = -60,
+			offset = 2.5,
+			size = 1
+		},
+		{
+			angle = 30,
+			offset = 2.5,
+			size = 1
+		},
+		{
+			angle = 100,
+			offset = 1.125,
+			size = 2
+		},
+		{
+			angle = 90,
+			offset = 2.75,
+			size = 1
+		},
+		{
+			angle = 0,
+			offset = 0,
+			size = 0.5
+		},
+		{
+			angle = 10,
+			offset = 2.5,
+			size = 1.5
+		},
+		{
+			angle = 90,
+			offset = -0.5,
+			size = 0.5
+		},
+		{
+			angle = -45,
+			offset = -1,
+			size = 1
+		},
+		{
+			angle = -90,
+			offset = 10.5,
+			size = 1
+		},
+		{
+			angle = 90,
+			offset = -1,
+			size = 0.5
+		},
+		{
+			angle = 70,
+			offset = 7.25,
+			size = 1
+		},
+	})
+	
+	browser_cogs_2 = calc_cogs(5, 2, 900, 700, {
+		{
+			angle = 45,
+			offset = 12.5, --revelation 1: smaller gear has larger offset
+			size = 1
+		},
+		{
+			angle = -90,
+			offset = 12.5 * 0,
+			size = 1
+		},
+		{
+			angle = -45,
+			offset = 12.5,
+			size = 1
+		},
+		{
+			angle = 15,
+			offset = -0.25,
+			size = 2
+		},
+		{
+			angle = 60,
+			offset = 12.25,
+			size = 1
+		},
+		{
+			angle = 90,
+			offset = 7,
+			size = 1
+		},
+		{
+			angle = 30,
+			offset = 2.25,
+			size = 2
+		},
+		{
+			angle = 15,
+			offset = 7.5,
+			size = 1
+		},
+	})
 	
 	game_bar_cogs = calc_cogs(10, 1, 0, 0, {
 		{
@@ -434,9 +559,9 @@ local function calc_vars()
 		}
 	})
 	
-	if game_bar and not game_bar_animating then
+	if game_bar then
 		--reposition the bar if it exists, I only imagine this happening if the screen resolution is changed
-		if game_bar_open then game_bar:SetPos(game_bar_x, game_bar_y)
+		if game_bar.Active then game_bar:SetPos(game_bar_x, game_bar_y)
 		else game_bar:SetPos(game_bar_x, scr_h) end
 	end
 	
@@ -504,16 +629,18 @@ local function forward_response(enum)
 	if #held_requests > 0 then open_request_gui() end
 end
 
-local function game_bar_message(new_line, ...)
+local function game_bar_message(new_line, message_table)
 	local rich_text = game_bar.rich_text
 	
 	if new_line then rich_text:AppendText("\n") end
 	
-	for index, value in ipairs({...}) do
+	for index, value in ipairs(message_table) do
 		if isstring(value) then rich_text:AppendText(value)
-		else rich_text:InsertColorChange(value[1], value[2], value[3], 255) end
+		else rich_text:InsertColorChange(value[1], value[2], value[3], value[4] or 255) end
 	end
 end
+
+local function game_bar_message_ez(new_line, ...) game_bar_message(new_line, {...}) end
 
 generate_block_form = function()
 	block_form:Clear()
@@ -560,47 +687,53 @@ local function generate_settings_form(form)
 end
 
 open_browser = function(icon, window)
-	browser = window
-	
-	browser:SetContentAlignment(8)
-	browser:SetDraggable(false)
-	browser:SetSize(browser_w, browser_h)
-	browser:SetTitle("#wire_game_core.browser.title")
-	
-	browser.btnMaxim:SetVisible(false)
-	browser.btnMinim:SetVisible(false)
-	
-	----close button
-		local button_close = browser.btnClose
+	----browser
+		--why does it layout every frame?
+		browser = window
 		
-		button_close:SetText("#wire_game_core.browser.close")
+		browser:SetContentAlignment(8)
+		browser:SetDraggable(true)
+		browser:SetMinimumSize(browser_w * 0.5, browser_h * 0.5)
+		browser:SetSizable(true)
+		browser:SetSize(browser_w, browser_h)
+		browser:SetTitle("#wire_game_core.browser.title")
 		
-		button_close.Paint = button_paint_close
-		
-		function browser.btnClose:PerformLayout(width, height)
-			surface.SetFont("DermaDefault")
+		browser.btnMaxim:SetVisible(false)
+		browser.btnMinim:SetVisible(false)
 			
-			local text_width = surface.GetTextSize(language.GetPhrase("wire_game_core.browser.close"))
-			local size = text_width + 10
+		function browser:OnRemove() browser = nil end
+		
+		function browser:Paint(w, h)
+			fl_surface_SetDrawColor(color_dark)
+			fl_surface_DrawRect(0, 0, w, h)
 			
-			self:SetPos(self:GetParent():GetWide() - size - 2, 0)
-			self:SetWidth(size)
+			draw_cogs(browser_cogs)
+			draw_cogs(browser_cogs_2)
+			
+			fl_surface_SetDrawColor(color_dark_header)
+			fl_surface_DrawRect(0, 0, w, header)
+			
+			fl_surface_SetDrawColor(color_dark_track)
+			fl_surface_DrawRect(0, header, w, browser_baseboard_h)
 		end
-	
-	function browser:OnRemove() browser = nil end
-	
-	function browser:Paint(w, h)
-		fl_surface_SetDrawColor(color_dark)
-		fl_surface_DrawRect(0, 0, w, h)
 		
-		draw_cogs(game_bar_cogs)
-		
-		fl_surface_SetDrawColor(color_dark_header)
-		fl_surface_DrawRect(0, 0, w, header)
-		
-		fl_surface_SetDrawColor(color_dark_track)
-		fl_surface_DrawRect(0, header, w, browser_baseboard_h)
-	end
+		do --close button
+			local button_close = browser.btnClose
+			
+			button_close:SetText("#wire_game_core.browser.close")
+			
+			button_close.Paint = button_paint_close
+			
+			function browser.btnClose:PerformLayout(width, height)
+				surface.SetFont("DermaDefault")
+				
+				local text_width = surface.GetTextSize(language.GetPhrase("wire_game_core.browser.close"))
+				local size = text_width + 10
+				
+				self:SetPos(self:GetParent():GetWide() - size - 2, 0)
+				self:SetWidth(size)
+			end
+		end
 	
 	--the icon on the top left, clicking it will take you to the workshop page
 	do
@@ -623,10 +756,9 @@ open_browser = function(icon, window)
 	do
 		local label_info = vgui.Create("DLabel", browser)
 		
+		label_info:Dock(FILL)
+		label_info:DockMargin(browser_icon_size + margin * 2, margin, margin, margin)
 		label_info:SetContentAlignment(7)
-		--label_info:SetFont("Trebuchet24")
-		label_info:SetPos(browser_icon_size + margin * 2, margin + header)
-		label_info:SetSize(browser_w - browser_icon_size - 3 * margin, browser_icon_size)
 		label_info:SetText("#wire_game_core.browser.info")
 		label_info:SetWrap(true)
 	end
@@ -636,7 +768,7 @@ open_browser = function(icon, window)
 		local scroller = vgui.Create("DScrollPanel", browser)
 		
 		scroller:Dock(FILL)
-		scroller:DockMargin(0, browser_baseboard_h, 0, 0)
+		scroller:DockMargin(0, browser_baseboard_h - 5, 0, 0)
 		scroller:SetVerticalScrollbarEnabled(false)
 		
 		--create entries, note that this can get expensive, but it will not get more expensive than O(n^2 + n)
@@ -650,8 +782,9 @@ open_browser = function(icon, window)
 			
 			--assign a score to each game settings, and sort them into order
 			local fake_game_settings = table.Merge({
-				---[[
+				--[[
 				[2] = {
+					description = "A two team battle to the death. Everyone gets the same weapons, and the weapons are randomized each round. Last team standing wins.",
 					open = true,
 					plys = {
 						[2] = true,
@@ -659,9 +792,10 @@ open_browser = function(icon, window)
 						[4] = true,
 						[6] = true
 					},
-					title = "Team Fortress 3"
+					title = "Kacolem's Team Deatch Match"
 				},
 				[3] = {
+					description = "Defend your team's flag while trying to steal theirs.",
 					open = false,
 					plys = {
 						[5] = true,
@@ -672,8 +806,18 @@ open_browser = function(icon, window)
 						[11] = true,
 						[12] = true
 					},
-					title = "Cum Chalice Challenge"
-				}
+					title = "Capture the Flag"
+				},
+				[13] = {
+					description = "Originally an idea from PaperClip's minigame addon, remade with expression 2 a few years ago, then recreated here! Be the last one alive while the floor crumbles away.",
+					open = false,
+					plys = {
+						[14] = true,
+						[15] = true,
+						[16] = true
+					},
+					title = "Falling Platforms"
+				},
 				--]]
 			}, table.Copy(game_settings))
 			
@@ -694,81 +838,27 @@ open_browser = function(icon, window)
 					end
 				end
 				
-				table.insert(order, chosen_index, {master_index, achieved, settings.title, settings.open})
+				table.insert(order, chosen_index, {master_index, achieved, settings.open})
 			end
 			
 			--create the entries in the order determined
 			for _, data in ipairs(order) do
-				--[[
-					local button = vgui.Create("DButton", self)
-					local button_layout = button.PerformLayout
-					local master_index = data[1]
-					
-					--we need the entity to get name n stuff
-					local master = Entity(master_index)
-					local master_valid = IsValid(master)
-					
-					self:AddItem(button)
-					
-					button:Dock(TOP)
-					button:DockMargin(margin, margin, margin, 0)
-					button:SetText(data[2] .. " - " .. data[3])
-					button:SetHeight(browser_button_h)
-					
-					button.Paint = button_paint
-					
-					----player's avatar
-						local avatar = vgui.Create("AvatarImage", button)
-						
-						avatar:Dock(LEFT)
-						avatar:DockMargin(4, 4, 0, 20)
-						avatar:InvalidateLayout(true)
-						
-						if master_valid then avatar:SetPlayer(master, 184) end
-					
-					----player name
-						local label_host = vgui.Create("DLabel", button)
-						
-						label_host:SetContentAlignment(5)
-						label_host:SetText(master_valid and master:Nick() or "#wire_game_core.browser.invalid")
-						label_host:SetTextColor(color_dark_text)
-					
-					--make it so players can join the game if it's open
-					if data[4] then
-						function button:DoClick()
-							net.Start("wire_game_core_join")
-							net.WriteInt(master_index, 8)
-							net.SendToServer()
-							
-							browser:Close()
-						end
-					else
-						button:SetCursor("none")
-						button:SetEnabled(false)
-					end
-					
-					--properly size stuff
-					function button:PerformLayout(w, h)
-						local avatar_size = h - 24
-						
-						avatar:SetWidth(h - 24) --24 is top margin + bottom margin
-						
-						label_host:SetPos(4, h - 20) --bottom margin of avatar
-						label_host:SetSize(avatar_size, 20)
-					end
-				]]
-				
 				local game_entry = vgui.Create("WGCBrowserGameEntry", self)
+				local master_index = data[1]
+				local settings = fake_game_settings[master_index] --game_settings[master_index] or {}
+				
 				game_entry.FrameBrowser = browser
 				game_entry.Scroller = self
 				
 				game_entry:Dock(TOP)
 				game_entry:DockMargin(margin, margin, margin, 0)
 				
-				game_entry:SetJoinable(data[4])
-				game_entry:SetMasterIndex(data[1])
+				game_entry:SetDescription(settings.description)
+				game_entry:SetJoinable(data[3])
+				game_entry:SetMasterIndex(master_index)
+				game_entry:SetPlayersByEntityIndexKeys(settings.plys)
 				game_entry:SetScore(data[2])
-				game_entry:SetTitle(data[3])
+				game_entry:SetTitle(settings.title)
 				game_entry:SetHeaderHeight(browser_button_h)
 			end
 		end
@@ -777,7 +867,7 @@ open_browser = function(icon, window)
 		scroller:GenerateGameEntries()
 		
 		--give us access for later :)
-		browser.ScrollPanel = scroller
+		browser.Scroller = scroller
 	end
 end
 
@@ -924,49 +1014,9 @@ local function request_full_sync()
 	net.SendToServer()
 end
 
-local function show_game_bar(state, finish)
-	if game_bar_animating then return end
-	
-	if state then
-		if not game_bar_open then
-			--open
-			game_bar_animating = true
-			game_bar_open = true
-			
-			local game_bar_animation = game_bar:NewAnimation(game_bar_animation_duration, 0, game_bar_animation_curve, function()
-				game_bar_animating = false
-				
-				game_bar:SetPos(game_bar_x, game_bar_y)
-				
-				if not game_bar_desired or not game_master_index then show_game_bar(false) end
-				if finish then finish() end
-			end)
-			
-			function game_bar_animation:Think(panel, fraction) game_bar:SetPos(game_bar_x, scr_h - fraction * game_bar_h) end
-		end
-	else
-		if game_bar_open then
-			--close
-			game_bar_animating = true
-			game_bar_open = false
-			
-			local game_bar_animation = game_bar:NewAnimation(game_bar_animation_duration, 0, game_bar_animation_curve, function()
-				game_bar_animating = false
-				
-				game_bar:SetPos(game_bar_x, scr_h)
-				
-				if finish then finish() end
-				if game_bar_desired then show_game_bar(true) end
-			end)
-			
-			function game_bar_animation:Think(panel, fraction) game_bar:SetPos(game_bar_x, game_bar_y + fraction * game_bar_h) end
-		end
-	end
-end
-
 local function update_game_bar()
 	game_bar.label_title:SetText(game_settings[game_master_index].title)
-	game_bar.label_master:SetText("Hosted by " .. game_master:Nick())
+	game_bar.label_master:SetText(translate("wire_game_core.bar.host", {name = game_master:Nick()}))
 end
 
 --post function setup
@@ -988,6 +1038,11 @@ concommand.Add("wire_game_core_reload", function()
 	hooks.ContextMenuCreated.wire_game_core(found_context_menu) --my old method, but now we have to recreate it when working with desktop icons
 	hooks.InitPostEntity.wire_game_core()
 end, nil, "Debug for game core, will be removed,")
+
+concommand.Add("wire_game_core_debug", function()
+	print("game_settings")
+	PrintTable(game_settings, 1)
+end, nil, "Debug info for game core.")
 
 concommand.Add("wire_game_core_debug_cogs", function()
 	local frame = vgui.Create("DFrame")
@@ -1032,6 +1087,10 @@ hook.Add("ContextMenuCreated", "wire_game_core", function(panel)
 	context_menu = panel
 	game_bar = vgui.Create("EditablePanel", GetHUDPanel(), "WireGameCoreGameBar")
 	
+	game_bar.Active = false
+	game_bar.Percent = 0
+	game_bar.Speed = 3
+	
 	game_bar:SetMouseInputEnabled(true)
 	game_bar:SetPos(game_bar_x, scr_h)
 	game_bar:SetSize(game_bar_w, game_bar_h)
@@ -1044,6 +1103,31 @@ hook.Add("ContextMenuCreated", "wire_game_core", function(panel)
 		
 		fl_surface_SetDrawColor(color_dark_header)
 		fl_surface_DrawRect(0, 0, w, game_bar_header)
+	end
+	
+	function game_bar:SetActive(active)
+		active = tobool(active) or false
+		
+		if self.Active ~= active then
+			self.Active = active
+			
+			if active then self:SetVisible(true)
+			else self:SetVisible(self.Percent ~= 0) end
+		end
+	end
+	
+	function game_bar:Think()
+		local old_percent = self.Percent
+		local percent = math.Clamp(old_percent + RealFrameTime() * (self.Active and self.Speed or -self.Speed), 0, 1)
+		
+		if percent ~= old_percent then
+			self.Percent = percent
+			
+			if percent == 0 then
+				self:SetPos(game_bar_x, scr_h)
+				self:SetVisible(false)
+			else self:SetPos(game_bar_x, scr_h - math.sin(percent * game_bar_animation_curve) ^ 0.75 * game_bar_h) end
+		end
 	end
 	
 	----label showing the game title
@@ -1067,7 +1151,7 @@ hook.Add("ContextMenuCreated", "wire_game_core", function(panel)
 		label_master:SetColor(color_dark_text)
 		label_master:SetContentAlignment(5)
 		label_master:SetHeight(game_bar_header * 0.4)
-		label_master:SetText("Unknown Host")
+		label_master:SetText("#wire_game_core.bar.host.unknown")
 		
 		game_bar.label_master = label_master
 	end
@@ -1266,26 +1350,25 @@ hook.Add("InitPostEntity", "wire_game_core", function()
 end)
 
 hook.Add("OnContextMenuClose", "wire_game_core", function()
-	game_bar_desired = false
-	
-	game_bar:SetParent(GetHUDPanel())
-	game_bar:SetMouseInputEnabled(false)
+	context_menu_open = false
 	
 	if game_master_index then
-		--
-		show_game_bar(false)
+		game_bar:SetActive(false)
+		game_bar:SetParent(GetHUDPanel())
+		game_bar:SetMouseInputEnabled(false)
 	end
 end)
 
 hook.Add("OnContextMenuOpen", "wire_game_core", function()
-	game_bar_desired = true
-	
-	game_bar:SetParent(context_menu)
-	game_bar:SetMouseInputEnabled(true)
-	
-	timer.Remove("wire_game_core_game_bar_close")
-	
-	if game_master_index then show_game_bar(true) end
+	context_menu_open = true
+	--TODO: figure out what the heck is happenning with game bar's animations
+	if game_master_index then
+		game_bar:SetActive(true)
+		game_bar:SetParent(context_menu)
+		game_bar:SetMouseInputEnabled(true)
+		
+		timer.Remove("wire_game_core_game_bar_close")
+	end
 end)
 
 hook.Add("OnScreenSizeChanged", "wire_game_core", calc_vars)
@@ -1296,7 +1379,13 @@ hook.Add("PopulateToolMenu", "wire_game_core", function() spawnmenu.AddToolMenuO
 --hook.Add("SpawnMenuOpen", "wire_game_core", function() if game_master_index then return false end end)
 
 hook.Add("ShouldCollide", "wire_game_core", function(ent_1, ent_2)
-	if ent_1:IsPlayer() and ent_2:IsPlayer() and game_masters[ent_1:EntIndex()] ~= game_masters[ent_2:EntIndex()] then return false end
+	if ent_1:IsPlayer() and ent_2:IsPlayer() then
+		local ent_1_master = game_masters[ent_1:EntIndex()]
+		local ent_2_master = game_masters[ent_2:EntIndex()]
+		
+		if ent_1_master and ent_1_master == ent_2_master then return game_settings[ent_1_master].player_collision end
+		if ent_1_master ~= ent_2_master then return false end
+	end
 	
 	return true
 end)
@@ -1339,19 +1428,23 @@ net.Receive("wire_game_core_join", function()
 	rich_text:SetText("")
 	
 	adjust_player_visibility()
-	game_bar_message(false, {255, 255, 128}, "You joined " .. game_master:Nick() .. "'s game.")
-	show_game_bar(true, function()
-		timer.Create("wire_game_core_game_bar_close", 5, 1, function()
+	game_bar_message_ez(false, {255, 255, 128}, "You joined " .. game_master:Nick() .. "'s game.")
+	
+	if context_menu_open then game_bar:SetActive(true)
+	else
+		game_bar:SetActive(true)
+		
+		timer.Create("wire_game_core_game_bar_close", 5 + 1 / 3, 1, function()
 			--short timers are okay by my standard
 			game_bar_desired = false
 			
-			show_game_bar(false)
+			game_bar:SetActive(false)
 		end)
-	end)
+	end
 end)
 
 net.Receive("wire_game_core_leave", function()
-	show_game_bar(false)
+	game_bar:SetActive(false)
 	
 	game_bar_desired = false
 	
@@ -1382,6 +1475,25 @@ net.Receive("wire_game_core_masters", function()
 		else ply:SetCustomCollisionCheck(true) end
 		
 		ply:CollisionRulesChanged()
+	end
+end)
+
+net.Receive("wire_game_core_message", function()
+	local message_table = net.ReadTable()
+	local new_line = net.ReadBool()
+	local notify = net.ReadBool()
+	
+	game_bar_message(new_line, message_table)
+	
+	if notify then
+		game_bar:SetActive(true)
+		
+		timer.Create("wire_game_core_game_bar_close", math.Clamp(net.ReadFloat(), 1, 10), 1, function()
+			--short timers are okay by my standard
+			game_bar_desired = false
+			
+			game_bar:SetActive(false)
+		end)
 	end
 end)
 
@@ -1416,16 +1528,26 @@ net.Receive("wire_game_core_sounds", function()
 end)
 
 net.Receive("wire_game_core_sync", function()
+	--todo: dont use net tables
 	local received_settings = net.ReadTable()
 	
 	--not sufficient! we have yet to cull unchanged information, so we need to set the table's index
 	--table.Merge(game_settings, received_settings)
 	
 	for master_index, settings in pairs(received_settings) do 
+		--if the settings are false instead of a table, they were removed
 		if settings == false then game_settings[master_index] = nil
-		else game_settings[master_index] = settings end
+		else
+			--game_settings[master_index] = settings
+			
+			print("sync!", master_index)
+			PrintTable(settings, 1)
+			
+			game_settings[master_index] = table.Merge(game_settings[master_index] or {}, settings)
+		end
 	end
 	
+	--close requests for closed games
 	if held_requests[1] then
 		local cur_time = CurTime()
 		
@@ -1433,8 +1555,9 @@ net.Receive("wire_game_core_sync", function()
 		for index, data in ipairs(held_requests) do if not game_settings[data[1]] then held_requests[index][3] = true end end
 	end
 	
+	--we need a better browser sync, like one that updates the description, title, players, and joinability without resetting the whole thing
 	if IsValid(browser) then browser.Scroller:GenerateGameEntries() end
-	if game_master_index and received_settings[game_master_index] then update_game_bar() end
+	if game_master_index and game_settings[game_master_index] then update_game_bar() end
 end)
 
 --auto reload, will be removed in the future

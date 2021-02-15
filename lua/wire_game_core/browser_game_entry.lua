@@ -3,6 +3,8 @@ local PANEL = {}
 --todo: clean up code style
 --silly goose do not pick up the code style of this file
 
+local canvas_animation_curve = math.pi * 0.5
+
 ----colors
 	local associated_colors = include("colors.lua")
 	local color_dark_baseboard = associated_colors.color_dark_baseboard
@@ -21,6 +23,7 @@ local PANEL = {}
 ----accessor functions
 	AccessorFunc(PANEL, "Canvas", "Canvas")
 	AccessorFunc(PANEL, "CanvasHeight", "CanvasHeight", FORCE_NUMBER)
+	AccessorFunc(PANEL, "Description", "Description")
 	AccessorFunc(PANEL, "HeaderHeight", "HeaderHeight", FORCE_NUMBER)
 	AccessorFunc(PANEL, "Master", "Master")
 	AccessorFunc(PANEL, "MasterIndex", "MasterIndex", FORCE_NUMBER)
@@ -28,18 +31,13 @@ local PANEL = {}
 	AccessorFunc(PANEL, "Score", "Score", FORCE_NUMBER)
 	AccessorFunc(PANEL, "Title", "Title", FORCE_STRING)
 
-function PANEL:Add(new_panel)
-	local canvas = self:GetCanvas()
-	
-	new_panel:SetParent(canvas)
-	
-	for index, panel in ipairs(canvas.Contents) do if panel == new_panel then return end end
-	
-	table.insert(canvas.Contents, new_panel)
-end
+surface.CreateFont("WGCBrowserGEPlayerName", {
+	font = "Roboto",
+	size = 24
+})
 
 function PANEL:DoClick()
-	local canvas = self:GetCanvas()
+	local canvas = self.Canvas
 	
 	canvas:SetActive(not canvas:GetActive())
 end
@@ -105,11 +103,6 @@ function PANEL:Init()
 				label:SetTextColor(color_white)
 				label:SetMouseInputEnabled(false)
 				
-				--[[function label:Paint(width, height)
-					surface.SetDrawColor(game_entry:IsEnabled() and color_dark_header or color_dark_track)
-					surface.DrawRect(0, 0, width, height)
-				end]]
-				
 				panel.LabelHost = label
 				self.LabelHost = label
 			end
@@ -133,7 +126,7 @@ function PANEL:Init()
 			
 			button:Dock(RIGHT)
 			button:DockMargin(0, 4, 4, 4)
-			button:SetText("Join")
+			button:SetText("#wire_game_core.browser.join")
 			button:SetVisible(false)
 			
 			function button:Paint(width, height)
@@ -161,69 +154,85 @@ function PANEL:Init()
 	
 	do --canvas
 		local game_entry = self
-		local panel_canvas = vgui.Create("DSizeToContents", self)
 		
-		AccessorFunc(panel_canvas, "Active", "Active", FORCE_BOOL)
-		
-		panel_canvas:SetPos(0, self:GetHeaderHeight())
-		panel_canvas:SetSize(self:GetWide(), self.CanvasHeight)
-		
-		panel_canvas.CanvasHeight = 240
-		panel_canvas.Contents = {}
-		panel_canvas.Percent = 0
-		panel_canvas.Speed = 3
-		
-		function panel_canvas:Paint(width, height) end
-		
-		function panel_canvas:PerformLayout(width, height)
-			game_entry.CanvasHeight = width
+		----canvas panel
+			local panel_canvas = vgui.Create("DPanel", self)
 			
-			self:SetWidth(game_entry:GetWide())
-		end
-		
-		function panel_canvas:Think()
-			local old_percent = self.Percent
-			local percent = math.Clamp(old_percent + RealFrameTime() * (self.Active and self.Speed or -self.Speed), 0, 1)
+			AccessorFunc(panel_canvas, "Active", "Active", FORCE_BOOL)
 			
-			if percent ~= old_percent then
-				self.Percent = percent
+			panel_canvas:SetPos(0, self:GetHeaderHeight())
+			panel_canvas:SetSize(self:GetWide(), 0)
+			
+			panel_canvas.CanvasHeight = 0
+			panel_canvas.Contents = {}
+			panel_canvas.Percent = 0
+			panel_canvas.Speed = 3
+			
+			function panel_canvas:Paint(width, height) end
+			
+			function panel_canvas:PerformLayout(width, height)
+				local max_height = 0
 				
-				if percent == 0 then
-					game_entry:SetHeight(game_entry:GetHeaderHeight())
+				--calculate the 
+				for index, panel in pairs(self:GetChildren()) do
+					local y = panel.y or select(2, panel:GetPos()) or 0
 					
-					--self:InvalidateParent()
-					self:SetHeight(self.CanvasHeight)
-					self:SetVisible(false)
-				else
-					local height = self.CanvasHeight * percent
+					max_height = math.max(max_height, panel:GetTall() + y)
+				end
+				
+				self:SetWidth(game_entry:GetWide())
+				self:SetCanvasHeight(max_height + 4)
+			end
+			
+			function panel_canvas:Think()
+				local old_percent = self.Percent
+				local percent = math.Clamp(old_percent + RealFrameTime() * (self.Active and self.Speed or -self.Speed), 0, 1)
+				
+				if percent ~= old_percent then
+					self.Percent = percent
 					
-					game_entry:SetHeight(height + game_entry:GetHeaderHeight())
-					self:SetHeight(height)
+					if percent == 0 then
+						game_entry:SetHeight(game_entry:GetHeaderHeight())
+						
+						self:SetHeight(self.CanvasHeight)
+						self:SetVisible(false)
+					else
+						local height = self.CanvasHeight * math.sin(percent * canvas_animation_curve) ^ 0.75
+						
+						game_entry:SetHeight(height + game_entry:GetHeaderHeight())
+						self:SetHeight(height)
+					end
 				end
 			end
-		end
-		
-		function panel_canvas:SetActive(active)
-			active = tobool(active) or false
 			
-			if self.Active ~= active then
-				self.Active = active
+			function panel_canvas:SetActive(active)
+				active = tobool(active) or false
 				
-				if active then self:SetVisible(true)
-				else self:SetVisible(self.Percent ~= 0) end
+				if self.Active ~= active then
+					self.Active = active
+					
+					if active then self:SetVisible(true)
+					else self:SetVisible(self.Percent ~= 0) end
+				end
 			end
-		end
-		
-		panel_canvas:SetActive(false)
-		self:SetCanvas(panel_canvas)
+			
+			function panel_canvas:SetCanvasHeight(height, animate_expansion)
+				local canvas_height = self.CanvasHeight
+				
+				if animate_expansion and height > canvas_height and self.Active then self.Percent = self.Percent * canvas_height / height end
+				
+				self.CanvasHeight = height
+			end
+			
+			panel_canvas:SetActive(false)
+			self:SetCanvas(panel_canvas)
 		
 		do --add canvas stuff
-			---[[
 			do --description panel
-				local panel = vgui.Create("DPanel", panel_canvas)
+				local panel = vgui.Create("DSizeToContents", panel_canvas)
 				
-				panel:Dock(FILL)
-				panel:DockMargin(4, 4, 4, 4)
+				panel:Dock(TOP)
+				panel:DockMargin(4, 4, 4, 0)
 				
 				do --header
 					local label = vgui.Create("DLabel", panel)
@@ -231,10 +240,10 @@ function PANEL:Init()
 					label:Dock(TOP)
 					label:SetAutoStretchVertical(true)
 					label:SetContentAlignment(5)
-					label:SetText("Description Header")
+					label:SetFont("DermaLarge")
+					label:SetText("#wire_game_core.browser.description")
 					
 					panel.LabelHeader = label
-					self.LabelDescriptionHeader = label
 				end
 				
 				do --body
@@ -243,8 +252,7 @@ function PANEL:Init()
 					label:Dock(TOP)
 					label:SetAutoStretchVertical(true)
 					label:SetContentAlignment(7)
-					label:SetText("Description of the game you made with my core! Thank you for using this extension, I put a lot of work into it and I wouldn't want it to just disappear into the flood of crappy workshop dupe uploads.")
-					label:SetWrap(true)
+					label:SetText("#wire_game_core.browser.description.empty")
 					
 					panel.LabelDescription = label
 					self.LabelDescription = label
@@ -252,19 +260,83 @@ function PANEL:Init()
 				
 				function panel:Paint() end
 				
-				function panel:PerformLayout(width, height) --label:DockMargin(4, 4, 4, 0)
-					local percentage = 0.8
+				function panel:PerformLayout(width, height) self:SizeToChildren(false, true) end
+				
+				panel_canvas.PanelDescription = panel
+				self.PanelDescription = panel
+			end
+			
+			do --player panel
+				--DSizeToContents
+				local panel = vgui.Create("DSizeToContents", panel_canvas)
+				
+				panel:Dock(TOP)
+				panel:DockMargin(4, 4, 4, 0)
+				
+				do --header
+					local label = vgui.Create("DLabel", panel)
 					
-					self.LabelDescription:DockMargin(4, height * percentage + 2, 4, 4)
-					self.LabelHeader:DockMargin(4, 4, 4, height * (1 - percentage) + 2)
+					label:Dock(TOP)
+					label:SetAutoStretchVertical(true)
+					label:SetContentAlignment(5)
+					label:SetFont("DermaLarge")
+					label:SetText("#wire_game_core.browser.players")
+					
+					panel.LabelHeader = label
+					self.LabelPlayersHeader = label
 				end
 				
-				panel_canvas.PanelDescription = panel_canvas
-				self.PanelDescription = panel
+				do --body
+					
+				end
 				
-				panel_canvas:Add(panel)
+				function panel:AddPlayer(ply)
+					local panel_player = vgui.Create("DPanel", panel)
+					local valid_player = IsValid(ply)
+					
+					panel_player.Removable = true
+					
+					panel_player:Dock(TOP)
+					panel_player:DockMargin(0, 4, 0, 0)
+					
+					function panel_player:PerformLayout(width, height) self:SetHeight(64) end
+					
+					do --avatar
+						local avatar = vgui.Create("AvatarImage", panel_player)
+						
+						avatar:Dock(LEFT)
+						avatar:DockMargin(4, 4, 0, 4)
+						
+						if valid_player then avatar:SetPlayer(ply, 64) end
+						
+						function avatar:PerformLayout(width, height) self:SetWidth(height) end
+					end
+					
+					do --name and shit
+						local label = vgui.Create("DLabel", panel_player)
+						
+						label:Dock(FILL)
+						label:DockMargin(4, 4, 4, 4)
+						label:SetFont("WGCBrowserGEPlayerName")
+						label:SetText(valid_player and ply:Nick() or "#wire_game_core.browser.invalid")
+					end
+					
+					function panel_player:Paint(width, height)
+						fl_surface_SetDrawColor(color_dark_baseboard)
+						fl_surface_DrawRect(0, 0, width, height)
+					end
+				end
+				
+				function panel:PerformLayout(width, height) self:SizeToChildren(false, true) end
+				
+				function panel:SetPlayers(plys)
+					for index, panel in ipairs(self:GetChildren()) do if panel.Removable then panel:Remove() end end
+					for index, ply in ipairs(plys) do self:AddPlayer(ply) end
+				end
+				
+				panel_canvas.PanelPlayers = panel
+				self.PanelPlayers = panel
 			end
-			--]]
 		end
 	end
 end
@@ -275,7 +347,7 @@ function PANEL:Paint(width, height)
 end
 
 function PANEL:PerformLayout(width, height)
-	local canvas = self:GetCanvas()
+	local canvas = self.Canvas
 	local canvas_height = canvas:GetTall()
 	local header_height = self:GetHeaderHeight()
 	
@@ -295,18 +367,16 @@ function PANEL:RemoveMaster()
 	self:SetScore(0)
 end
 
-function PANEL:SetCanvasHeight(height, animate_expansion)
-	local canvas = self:GetCanvas()
-	local canvas_height = canvas.CanvasHeight
+function PANEL:SetCanvasHeight(...) self.Canvas:SetCanvasHeight(...) end
+
+function PANEL:SetDescription(description)
+	self.PanelDescription.LabelDescription:SetText(description or self.Master == LocalPlayer() and "#wire_game_core.browser.description.empty.developer" or "#wire_game_core.browser.description.empty")
 	
-	if animate_expansion and height > canvas_height and canvas.Active then canvas.Percent = canvas.Percent * canvas_height / height end
-	
-	canvas.CanvasHeight = height
-	self.CanvasHeight = 240
+	self.Description = description
 end
 
 function PANEL:SetHeaderHeight(height)
-	local canvas = self:GetCanvas()
+	local canvas = self.Canvas
 	
 	canvas:SetPos(0, height)
 	self.Header:SetHeight(height)
@@ -346,6 +416,8 @@ function PANEL:SetMaster(master)
 	self.AvatarHost:SetPlayer(master, 184)
 	self.LabelHost:SetText(master:Nick())
 	
+	self:SetDescription(self.Description)
+	
 	self.Master = master
 end
 
@@ -366,6 +438,16 @@ function PANEL:SetMasterIndex(master_index)
 	end
 	
 	self:RemoveMaster()
+end
+
+function PANEL:SetPlayers(plys) self.PanelPlayers:SetPlayers(plys) end
+
+function PANEL:SetPlayersByEntityIndexKeys(ply_indices)
+	local plys = {}
+	
+	for ply_index in pairs(ply_indices) do table.insert(plys, Entity(ply_index)) end
+	
+	self.PanelPlayers:SetPlayers(plys)
 end
 
 function PANEL:SetTitle(text) self.Header:SetText(text) end
