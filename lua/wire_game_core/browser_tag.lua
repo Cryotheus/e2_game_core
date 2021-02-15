@@ -23,4 +23,4 @@ function PANEL:SetTagColor(r, g, b)
 	self.TagColor = color
 end
 
-derma.DefineControl("WGCBrowserTag", "A tag for the Wire Game Core's Game Browser.", PAENL, "DLabel")
+derma.DefineControl("WGCBrowserTag", "A panel for the Wire Game Core's Game Browser.", PAENL, "DLabel")

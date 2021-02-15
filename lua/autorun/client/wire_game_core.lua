@@ -690,6 +690,8 @@ open_browser = function(icon, window)
 	----browser
 		--why does it layout every frame?
 		browser = window
+		local panel_cogs
+		local scroller
 		
 		browser:SetContentAlignment(8)
 		browser:SetDraggable(true)
@@ -706,9 +708,6 @@ open_browser = function(icon, window)
 		function browser:Paint(w, h)
 			fl_surface_SetDrawColor(color_dark)
 			fl_surface_DrawRect(0, 0, w, h)
-			
-			draw_cogs(browser_cogs)
-			draw_cogs(browser_cogs_2)
 			
 			fl_surface_SetDrawColor(color_dark_header)
 			fl_surface_DrawRect(0, 0, w, header)
@@ -765,7 +764,7 @@ open_browser = function(icon, window)
 	
 	----scroller containing a list of games
 	do
-		local scroller = vgui.Create("DScrollPanel", browser)
+		scroller = vgui.Create("DScrollPanel", browser)
 		
 		scroller:Dock(FILL)
 		scroller:DockMargin(0, browser_baseboard_h - 5, 0, 0)
@@ -778,11 +777,13 @@ open_browser = function(icon, window)
 			local order = {}
 			
 			--remove the old entries
+			browser.GameEntries = {}
+			browser.GameEntryHeaders = {}
 			self:Clear()
 			
 			--assign a score to each game settings, and sort them into order
 			local fake_game_settings = table.Merge({
-				--[[
+				---[[
 				[2] = {
 					description = "A two team battle to the death. Everyone gets the same weapons, and the weapons are randomized each round. Last team standing wins.",
 					open = true,
@@ -796,7 +797,7 @@ open_browser = function(icon, window)
 				},
 				[3] = {
 					description = "Defend your team's flag while trying to steal theirs.",
-					open = false,
+					open = true,
 					plys = {
 						[5] = true,
 						[7] = true,
@@ -842,7 +843,7 @@ open_browser = function(icon, window)
 			end
 			
 			--create the entries in the order determined
-			for _, data in ipairs(order) do
+			for index, data in ipairs(order) do
 				local game_entry = vgui.Create("WGCBrowserGameEntry", self)
 				local master_index = data[1]
 				local settings = fake_game_settings[master_index] --game_settings[master_index] or {}
@@ -852,14 +853,18 @@ open_browser = function(icon, window)
 				
 				game_entry:Dock(TOP)
 				game_entry:DockMargin(margin, margin, margin, 0)
-				
 				game_entry:SetDescription(settings.description)
+				game_entry:SetHeaderHeight(browser_button_h)
 				game_entry:SetJoinable(data[3])
 				game_entry:SetMasterIndex(master_index)
 				game_entry:SetPlayersByEntityIndexKeys(settings.plys)
 				game_entry:SetScore(data[2])
 				game_entry:SetTitle(settings.title)
-				game_entry:SetHeaderHeight(browser_button_h)
+				
+				game_entry.Header:SetPaintedManually(true)
+				
+				browser.GameEntries[index] = game_entry
+				browser.GameEntryHeaders[index] = game_entry.Header
 			end
 		end
 		
@@ -868,6 +873,57 @@ open_browser = function(icon, window)
 		
 		--give us access for later :)
 		browser.Scroller = scroller
+	end
+	
+	do --test panel
+		panel_cogs = vgui.Create("DPanel", browser)
+		
+		panel_cogs:Dock(FILL)
+		panel_cogs:SetKeyBoardInputEnabled(false)
+		panel_cogs:SetMouseInputEnabled(false)
+		panel_cogs:SetZPos(1)
+		
+		function panel_cogs:Paint(width, height)
+			render.ClearStencil()
+			render.SetStencilCompareFunction(STENCIL_NEVER)
+			render.SetStencilEnable(true)
+			render.SetStencilFailOperation(STENCIL_REPLACE)
+			render.SetStencilPassOperation(STENCIL_KEEP)
+			render.SetStencilReferenceValue(1)
+			render.SetStencilTestMask(0xFF)
+			render.SetStencilWriteMask(0xFF)
+			render.SetStencilZFailOperation(STENCIL_KEEP)
+			
+			for index, panel in ipairs(browser.GameEntryHeaders) do
+				local x, y = self:ScreenToLocal(panel:LocalToScreen())
+				
+				fl_surface_SetDrawColor(255, 255, 255)
+				fl_surface_DrawRect(x, y, panel:GetSize())
+			end
+			
+			render.SetStencilFailOperation(STENCIL_INCR)
+			render.SetStencilPassOperation(STENCIL_KEEP)
+			
+			fl_surface_SetDrawColor(255, 255, 255, 32)
+			fl_surface_DrawRect(scroller:GetBounds())
+			
+			render.SetStencilReferenceValue(2)
+			render.SetStencilCompareFunction(STENCIL_EQUAL)
+			render.SetStencilFailOperation(STENCIL_KEEP)
+			render.SetStencilPassOperation(STENCIL_REPLACE)
+			
+			draw_cogs(browser_cogs)
+			draw_cogs(browser_cogs_2)
+			
+			for index, panel in ipairs(browser.GameEntryHeaders) do panel:PaintManual() end
+			
+			render.SetStencilEnable(false)
+		end
+		
+		function panel_cogs:PerformLayout(width, height)
+			self:SetPos(0, 0)
+			self:SetSize(browser:GetSize())
+		end
 	end
 end
 

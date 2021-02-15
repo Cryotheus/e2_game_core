@@ -54,16 +54,21 @@ function PANEL:Init()
 		header:Dock(TOP)
 		header:SetFont("DermaLarge")
 		header:SetHeight(self.HeaderHeight)
+		header:SetTextColor(Color(224, 224, 224))
 		
 		function header:DoClick() self:GetParent():DoClick() end
 		
 		function header:Paint(width, height)
-			if self.Depressed or self:IsSelected() or self:GetToggle() then fl_surface_SetDrawColor(color_expression)
-			elseif not self:IsEnabled() then fl_surface_SetDrawColor(color_dark_baseboard)
-			elseif self.Hovered then fl_surface_SetDrawColor(color_dark_button_hover)
-			else fl_surface_SetDrawColor(color_dark_button) end
-			
-			fl_surface_DrawRect(0, 0, width, height)
+			if self.Depressed or self:IsSelected() or self:GetToggle() then
+				fl_surface_SetDrawColor(128, 128, 128, 8)
+				fl_surface_DrawRect(0, 0, width, height)
+			elseif not self:IsEnabled() then
+				fl_surface_SetDrawColor(0, 0, 0, 64)
+				fl_surface_DrawRect(0, 0, width, height)
+			elseif self.Hovered then
+				fl_surface_SetDrawColor(128, 128, 128, 4)
+				fl_surface_DrawRect(0, 0, width, height)
+			end
 		end
 		
 		do --host card panel
@@ -122,7 +127,6 @@ function PANEL:Init()
 		
 		do --join button
 			local button = vgui.Create("DButton", header)
-			
 			
 			button:Dock(RIGHT)
 			button:DockMargin(0, 4, 4, 4)
@@ -342,8 +346,13 @@ function PANEL:Init()
 end
 
 function PANEL:Paint(width, height)
+	local header_height = self.HeaderHeight
+	
+	fl_surface_SetDrawColor(color_dark_button)
+	fl_surface_DrawRect(0, 0, width, header_height)
+	
 	fl_surface_SetDrawColor(color_dark_track)
-	fl_surface_DrawRect(0, 0, width, height)
+	fl_surface_DrawRect(0, header_height, width, height - header_height)
 end
 
 function PANEL:PerformLayout(width, height)
