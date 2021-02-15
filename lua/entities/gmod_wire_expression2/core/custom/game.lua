@@ -3222,9 +3222,13 @@ do
 			if not ulib_teams then
 				ulib_teams = hooks.PlayerSpawn.UTeamSpawnAuth
 				ULXUTeamSpawnAuthHook_GameCore = ulib_teams
+				
+				if not ulib_teams then goto done end
 			end
 			
 			detour_spawn()
+			
+			::done::
 			
 			hook.Remove("InitPostEntity", "wire_game_core")
 		end)
