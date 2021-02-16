@@ -112,7 +112,7 @@ local function_descriptions = {
 --5: Only functions when the chip has started a game, and the target player is part of the game.
 --6: Only functions when the chip had previously started a game.
 
-local translate = include("wire_game_core/translate.lua")
+local translate = include("wire_game_core/includes/translate.lua")
 local wip_tag = translate("wire_game_core.e2helper.wip.tag")
 
 --negative if they are wip

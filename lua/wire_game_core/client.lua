@@ -1,6 +1,4 @@
 --note that I am still working on this, so I have not yet cached rendering functions and there is some other stuff which probably needs to be optimized
-include("wire_game_core/browser_game_entry.lua")
-
 --tables
 local game_blocks = {}				--y stores the blocked players, may not be used;	k: master index,		v: true
 local game_blocks_check_boxes = {}	--y stores the checkbox panel for every player;		k: master index,		v: panel
@@ -26,7 +24,7 @@ local open_browser
 local open_request_gui
 
 ----colors
-	local associated_colors = include("wire_game_core/colors.lua")
+	local associated_colors = include("wire_game_core/includes/colors.lua")
 	local color_button_text = associated_colors.color_button_text
 	local color_dark = associated_colors.color_dark
 	local color_dark_baseboard = associated_colors.color_dark_baseboard
@@ -162,7 +160,7 @@ local player_visibility_set_functions = {
 	end
 }
 
-local translate = include("wire_game_core/translate.lua")
+local tags = include("wire_game_core/includes/tags.lua")
 
 --convars
 local wire_game_core_request_duration = CreateClientConVar("wire_game_core_request_duration", "30", true, false, "How long should a request last before expiring", 10, 60)
@@ -194,6 +192,7 @@ local pop_up_duration = wire_game_core_request_duration:GetFloat()
 	local fl_surface_SetDrawColor = surface.SetDrawColor
 	local fl_surface_SetMaterial = surface.SetMaterial
 	local fl_surface_SetTexture = surface.SetTexture
+	local translate = include("wire_game_core/includes/translate.lua")
 
 --local functions
 local function active_game() if game_master_index then return true end end
@@ -770,6 +769,9 @@ open_browser = function(icon, window)
 		scroller:DockMargin(0, browser_baseboard_h - 5, 0, 0)
 		scroller:SetVerticalScrollbarEnabled(false)
 		
+		--scroller.VBar:SetEnabled(false)
+		--scroller.VBar:SetVisible(false)
+		
 		--create entries, note that this can get expensive, but it will not get more expensive than O(n^2 + n)
 		function scroller:GenerateGameEntries()
 			--todo: make it so individual entries are updated, instead of recreating this list every time a sync is received
@@ -852,7 +854,7 @@ open_browser = function(icon, window)
 				game_entry.Scroller = self
 				
 				game_entry:Dock(TOP)
-				game_entry:DockMargin(margin, margin, margin, 0)
+				game_entry:DockMargin(0, margin, 0, 0)
 				game_entry:SetDescription(settings.description)
 				game_entry:SetHeaderHeight(browser_button_h)
 				game_entry:SetJoinable(data[3])
@@ -863,10 +865,31 @@ open_browser = function(icon, window)
 				
 				game_entry.Header:SetPaintedManually(true)
 				
+				for index, tag_info in pairs(tags) do game_entry:AddTag(tag_info[1], nil, tag_info[2]) end
+				
 				browser.GameEntries[index] = game_entry
 				browser.GameEntryHeaders[index] = game_entry.Header
 			end
 		end
+		
+		function scroller:PerformLayoutInternal()
+			local canvas = self.pnlCanvas
+			local canvas_height = canvas:GetTall()
+			
+			self:Rebuild()
+			self.VBar:SetUp(self:GetTall(), canvas_height)
+			self.VBar:SetSize(0, 0)
+			
+			--double rebuild; because I said so
+			canvas:SetPos(0, self.VBar:GetOffset())
+			canvas:SetWide(self:GetWide())
+			self:Rebuild()
+			
+			--clamps scroll
+			if canvas_height ~= self.pnlCanvas:GetTall() then self.VBar:SetScroll(self.VBar:GetScroll()) end
+		end
+		
+		--function scroller.VBar:PerformLayout() self:SetVisible(false) end
 		
 		--now call that function we made
 		scroller:GenerateGameEntries()
@@ -1079,7 +1102,7 @@ end
 calc_vars()
 
 --concommand
-concommand.Add("wire_game_core_reload", function()
+concommand.Add("wire_game_core_reload_internal", function()
 	--this stuff is also being used for autoreload, but is safe to run anyways
 	local hooks = hook.GetTable()
 	local world_panel = vgui.GetWorldPanel()
@@ -1617,5 +1640,5 @@ net.Receive("wire_game_core_sync", function()
 end)
 
 --auto reload, will be removed in the future
-if WireGameCore then RunConsoleCommand("wire_game_core_reload")
+if WireGameCore then RunConsoleCommand("wire_game_core_reload_internal")
 else WireGameCore = true end

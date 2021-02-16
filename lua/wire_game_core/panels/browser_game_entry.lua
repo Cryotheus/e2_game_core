@@ -6,7 +6,7 @@ local PANEL = {}
 local canvas_animation_curve = math.pi * 0.5
 
 ----colors
-	local associated_colors = include("colors.lua")
+	local associated_colors = include("wire_game_core/includes/colors.lua")
 	local color_dark_baseboard = associated_colors.color_dark_baseboard
 	local color_dark_button = associated_colors.color_dark_button
 	local color_dark_button_hover = associated_colors.color_dark_button_hover
@@ -35,6 +35,9 @@ surface.CreateFont("WGCBrowserGEPlayerName", {
 	font = "Roboto",
 	size = 24
 })
+
+--panel functions
+function PANEL:AddTag(...) self.TagContainer:Add(...) end
 
 function PANEL:DoClick()
 	local canvas = self.Canvas
@@ -248,6 +251,16 @@ function PANEL:Init()
 					label:SetText("#wire_game_core.browser.description")
 					
 					panel.LabelHeader = label
+				end
+				
+				do --tags
+					local tag_container = vgui.Create("WGCBrowserTagContainer", panel)
+					
+					tag_container:Dock(TOP)
+					tag_container:DockMargin(0, 4, 0, 4)
+					
+					panel.TagContainer = tag_container
+					self.TagContainer = tag_container
 				end
 				
 				do --body

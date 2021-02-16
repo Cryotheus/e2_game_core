@@ -11,5 +11,7 @@ return {
 	color_expression_excited = Color(158, 47, 47),
 	color_game_highlight = Color(128, 255, 128),
 	color_game_indicator = Color(192, 255, 192),
-	color_ghost = Color(255, 255, 255, 127)
+	color_ghost = Color(255, 255, 255, 127),
+	color_print_red = Color(255, 0, 0),
+	color_print_white = color_white
 }

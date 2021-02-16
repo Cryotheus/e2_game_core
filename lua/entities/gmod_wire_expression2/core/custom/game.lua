@@ -1,16 +1,3 @@
---at this point I am thinking of grouping some less commonly used ones together and sending a uint to identify what its purpose is
---this would cut down on the amount of network strings I am using, but increase code complexity a little bit
-util.AddNetworkString("wire_game_core_block")
-util.AddNetworkString("wire_game_core_block_update")
-util.AddNetworkString("wire_game_core_join")
-util.AddNetworkString("wire_game_core_leave")
-util.AddNetworkString("wire_game_core_message")
-util.AddNetworkString("wire_game_core_masters")
-util.AddNetworkString("wire_game_core_request")
-util.AddNetworkString("wire_game_core_sounds")
-util.AddNetworkString("wire_game_core_sync")
-
---misc. ungrouped
 --tables
 local entity_meta = FindMetaTable("Entity")
 local game_blocks = {}			--y for players who blocked others;				k: player index,		v: table where (k: master index, v: true)
@@ -29,6 +16,7 @@ local game_settings = {}		--y stores the settings for each players game;	k: mast
 local ply_cameras = {}			--y stores the cameras each player is viewing;	k: player index,		v: camera index
 local ply_meta = FindMetaTable("Player")
 local ply_settings = {}			--y for restoring the player;					k: player index,		v: table where (k: state name, v: state value)
+local tags = include("wire_game_core/includes/tags.lua") --y					k: sequential index		v: table where (1: tag id, 2: color)
 
 ----network queue tables
 	local queue_game_cameras = {}	--y stores the camera's updated nwvars;			k: camera entity,	v: table where (k: var name, v: value)
@@ -790,6 +778,7 @@ E2Lib.RegisterExtension("game", false,
 	"Restart the server after disabling!\nThis extension is still in development. Although many measures have been taking to ensure addon intercompatibility, some addons may still break this extension. If any script errors are experienced or a conflict/exploit arises please report it.")
 
 for enum, value in pairs(game_constants) do E2Lib.registerConstant("_GAME" .. enum, value) end
+for value, tag_info in ipairs(tags) do E2Lib.registerConstant("_GAMETAG_" .. string.upper(tag_info[1]), value) end
 
 --quick detours
 fl_Entity_SetGravity = create_function_detour(entity_meta, "SetGravity", "gravity")
@@ -2764,10 +2753,10 @@ cvars.AddChangeCallback("wire_game_core_min_gravity", function() game_min_gravit
 cvars.AddChangeCallback("wire_game_core_request_delay", function() game_request_delay = wire_game_core_request_delay:GetFloat() end)
 
 --hooks PhysgunPickup
-hook.Add("AllowPlayerPickup", "wire_game_core", function(...) print("debug!, AllowPlayerPickup", ...) player_can_interact(...) end)
+hook.Add("AllowPlayerPickup", "wire_game_core", player_can_interact)
 hook.Add("CanArmDupe", "wire_game_core", active_game_inv)
 hook.Add("CanDrive", "wire_game_core", active_game_inv)
-hook.Add("CanPlayerEnterVehicle", "wire_game_core", function(...) print("debug!, CanPlayerEnterVehicle", ...) player_can_interact(...) end)
+hook.Add("CanPlayerEnterVehicle", "wire_game_core", player_can_interact)
 hook.Add("CanProperty", "wire_game_core", active_game_inv)
 hook.Add("CanTool", "wire_game_core", active_game_inv)
 
@@ -2808,10 +2797,10 @@ hook.Add("GetFallDamage", "wire_game_core", function(ply)
 	if master_index and game_settings[master_index].block_fall_damage then return 0 end
 end)
 
-hook.Add("GravGunPickupAllowed", "wire_game_core", function(...) print("debug!, GravGunPickupAllowed", ...) player_can_interact(...) end)
-hook.Add("PhysgunPickup", "wire_game_core", function(...) print("debug!, PhysgunPickup", ...) player_can_interact(...) end)
-hook.Add("PlayerCanPickupItem", "wire_game_core", function(...) print("debug!, PlayerCanPickupItem", ...) player_can_interact(...) end)
-hook.Add("PlayerCanPickupWeapon", "wire_game_core", function(...) print("debug!, PlayerCanPickupWeapon", ...) player_can_interact(...) end)
+hook.Add("GravGunPickupAllowed", "wire_game_core", player_can_interact)
+hook.Add("PhysgunPickup", "wire_game_core", player_can_interact)
+hook.Add("PlayerCanPickupItem", "wire_game_core", player_can_interact)
+hook.Add("PlayerCanPickupWeapon", "wire_game_core", player_can_interact)
 
 hook.Add("PlayerDeath", "wire_game_core", function(victim, inflictor, attacker)
 	local victim_index = victim:EntIndex()
