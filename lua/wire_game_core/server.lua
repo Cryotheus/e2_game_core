@@ -3,6 +3,7 @@ resource.AddFile("materials/vgui/wire_game_core/icon.png") --used for the icon i
 resource.AddFile("materials/vgui/wire_game_core/icon.png") --used for the icon in the game browsers
 resource.AddFile("resource/localization/en/wire_game_core.properties") --needed for all the descriptions and stuff
 
+--we have these here instead of game.lua because the client can sometimes send the net message when they have not yet been added
 --at this point I am thinking of grouping some less commonly used ones together and sending a uint to identify what its purpose is
 --this would cut down on the amount of network strings I am using, but increase code complexity a little bit
 util.AddNetworkString("wire_game_core_block")

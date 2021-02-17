@@ -688,9 +688,10 @@ end
 open_browser = function(icon, window)
 	----browser
 		--why does it layout every frame?
+		--weird as fuck
 		browser = window
+		local game_entry_container
 		local panel_cogs
-		local scroller
 		
 		browser:SetContentAlignment(8)
 		browser:SetDraggable(true)
@@ -733,8 +734,8 @@ open_browser = function(icon, window)
 			end
 		end
 	
-	--the icon on the top left, clicking it will take you to the workshop page
-	do
+	
+	do --the icon on the top left, clicking it will take you to the workshop page
 		local button_icon = vgui.Create("DButton", browser)
 		
 		button_icon:SetPos(margin, margin + header)
@@ -750,8 +751,7 @@ open_browser = function(icon, window)
 		end
 	end
 	
-	----label with info about this addon
-	do
+	do --label with info about this addon
 		local label_info = vgui.Create("DLabel", browser)
 		
 		label_info:Dock(FILL)
@@ -761,141 +761,22 @@ open_browser = function(icon, window)
 		label_info:SetWrap(true)
 	end
 	
-	----scroller containing a list of games
 	do
-		scroller = vgui.Create("DScrollPanel", browser)
+		game_entry_container = vgui.Create("WGCBrowserGameEntryContainer", browser)
 		
-		scroller:Dock(FILL)
-		scroller:DockMargin(0, browser_baseboard_h - 5, 0, 0)
-		scroller:SetVerticalScrollbarEnabled(false)
+		browser.GameEntryHeaders = {}
+		game_entry_container.FrameBrowser = browser
 		
-		--scroller.VBar:SetEnabled(false)
-		--scroller.VBar:SetVisible(false)
+		game_entry_container:Dock(FILL)
+		game_entry_container:DockMargin(0, browser_baseboard_h - 5, 0, 0)
 		
-		--create entries, note that this can get expensive, but it will not get more expensive than O(n^2 + n)
-		function scroller:GenerateGameEntries()
-			--todo: make it so individual entries are updated, instead of recreating this list every time a sync is received
-			--if a new game appears, or players change, then we reconstruct it
-			local order = {}
+		for master_index, settings in pairs(game_settings) do
+			local game_entry = game_entry_container:AddEntry(master_index, settings, browser_button_h)
 			
-			--remove the old entries
-			browser.GameEntries = {}
-			browser.GameEntryHeaders = {}
-			self:Clear()
-			
-			--assign a score to each game settings, and sort them into order
-			local fake_game_settings = table.Merge({
-				---[[
-				[2] = {
-					description = "A two team battle to the death. Everyone gets the same weapons, and the weapons are randomized each round. Last team standing wins.",
-					open = true,
-					plys = {
-						[2] = true,
-						[3] = true,
-						[4] = true,
-						[6] = true
-					},
-					title = "Kacolem's Team Deatch Match"
-				},
-				[3] = {
-					description = "Defend your team's flag while trying to steal theirs.",
-					open = true,
-					plys = {
-						[5] = true,
-						[7] = true,
-						[8] = true,
-						[9] = true,
-						[10] = true,
-						[11] = true,
-						[12] = true
-					},
-					title = "Capture the Flag"
-				},
-				[13] = {
-					description = "Originally an idea from PaperClip's minigame addon, remade with expression 2 a few years ago, then recreated here! Be the last one alive while the floor crumbles away.",
-					open = false,
-					plys = {
-						[14] = true,
-						[15] = true,
-						[16] = true
-					},
-					title = "Falling Platforms"
-				},
-				--]]
-			}, table.Copy(game_settings))
-			
-			--determine "scores" for each game, higher score means higher placement in the list
-			for master_index, settings in pairs(fake_game_settings) do
-				local achieved = 0
-				local chosen_index = #order + 1
-				
-				if settings.open then achieved = table.Count(settings.plys) + 257
-				else achieved = table.Count(settings.plys) + 1 end
-				
-				for index, data in ipairs(order) do
-					if achieved > data[2] then
-						--we found a spot which they fit, put them in it
-						chosen_index = index
-						
-						break
-					end
-				end
-				
-				table.insert(order, chosen_index, {master_index, achieved, settings.open})
-			end
-			
-			--create the entries in the order determined
-			for index, data in ipairs(order) do
-				local game_entry = vgui.Create("WGCBrowserGameEntry", self)
-				local master_index = data[1]
-				local settings = fake_game_settings[master_index] --game_settings[master_index] or {}
-				
-				game_entry.FrameBrowser = browser
-				game_entry.Scroller = self
-				
-				game_entry:Dock(TOP)
-				game_entry:DockMargin(0, margin, 0, 0)
-				game_entry:SetDescription(settings.description)
-				game_entry:SetHeaderHeight(browser_button_h)
-				game_entry:SetJoinable(data[3])
-				game_entry:SetMasterIndex(master_index)
-				game_entry:SetPlayersByEntityIndexKeys(settings.plys)
-				game_entry:SetScore(data[2])
-				game_entry:SetTitle(settings.title)
-				
-				game_entry.Header:SetPaintedManually(true)
-				
-				for index, tag_info in pairs(tags) do game_entry:AddTag(tag_info[1], nil, tag_info[2]) end
-				
-				browser.GameEntries[index] = game_entry
-				browser.GameEntryHeaders[index] = game_entry.Header
-			end
+			table.insert(browser.GameEntryHeaders, game_entry.Header)
 		end
 		
-		function scroller:PerformLayoutInternal()
-			local canvas = self.pnlCanvas
-			local canvas_height = canvas:GetTall()
-			
-			self:Rebuild()
-			self.VBar:SetUp(self:GetTall(), canvas_height)
-			self.VBar:SetSize(0, 0)
-			
-			--double rebuild; because I said so
-			canvas:SetPos(0, self.VBar:GetOffset())
-			canvas:SetWide(self:GetWide())
-			self:Rebuild()
-			
-			--clamps scroll
-			if canvas_height ~= self.pnlCanvas:GetTall() then self.VBar:SetScroll(self.VBar:GetScroll()) end
-		end
-		
-		--function scroller.VBar:PerformLayout() self:SetVisible(false) end
-		
-		--now call that function we made
-		scroller:GenerateGameEntries()
-		
-		--give us access for later :)
-		browser.Scroller = scroller
+		browser.GameEntryContainer = game_entry_container
 	end
 	
 	do --test panel
@@ -928,7 +809,7 @@ open_browser = function(icon, window)
 			render.SetStencilPassOperation(STENCIL_KEEP)
 			
 			fl_surface_SetDrawColor(255, 255, 255, 32)
-			fl_surface_DrawRect(scroller:GetBounds())
+			fl_surface_DrawRect(game_entry_container:GetBounds())
 			
 			render.SetStencilReferenceValue(2)
 			render.SetStencilCompareFunction(STENCIL_EQUAL)
@@ -1559,20 +1440,25 @@ end)
 
 net.Receive("wire_game_core_message", function()
 	local message_table = net.ReadTable()
-	local new_line = net.ReadBool()
-	local notify = net.ReadBool()
 	
-	game_bar_message(new_line, message_table)
-	
-	if notify then
-		game_bar:SetActive(true)
+	if message_table then
+		local new_line = net.ReadBool()
+		local notify = net.ReadBool()
 		
-		timer.Create("wire_game_core_game_bar_close", math.Clamp(net.ReadFloat(), 1, 10), 1, function()
-			--short timers are okay by my standard
-			game_bar_desired = false
+		game_bar_message(new_line, message_table)
+		
+		if notify then
+			game_bar:SetActive(true)
 			
-			game_bar:SetActive(false)
-		end)
+			timer.Create("wire_game_core_game_bar_close", math.Clamp(net.ReadFloat(), 1, 10), 1, function()
+				--short timers are okay by my standard
+				game_bar_desired = false
+				
+				game_bar:SetActive(false)
+			end)
+		end
+	else
+		
 	end
 end)
 
@@ -1607,22 +1493,33 @@ net.Receive("wire_game_core_sounds", function()
 end)
 
 net.Receive("wire_game_core_sync", function()
-	--todo: dont use net tables
+	--not sufficient! we need to stop using net.WriteTable!
 	local received_settings = net.ReadTable()
 	
-	--not sufficient! we have yet to cull unchanged information, so we need to set the table's index
-	--table.Merge(game_settings, received_settings)
-	
-	for master_index, settings in pairs(received_settings) do 
-		--if the settings are false instead of a table, they were removed
-		if settings == false then game_settings[master_index] = nil
-		else
-			--game_settings[master_index] = settings
-			
-			print("sync!", master_index)
-			PrintTable(settings, 1)
-			
-			game_settings[master_index] = table.Merge(game_settings[master_index] or {}, settings)
+	if IsValid(browser) then
+		local game_entry_container = browser.GameEntryContainer
+		
+		for master_index, settings in pairs(received_settings) do 
+			--if the settings are false instead of a table, they were removed
+			if settings == false then
+				game_entry_container:RemoveEntry(master_index)
+				
+				game_settings[master_index] = nil
+			else
+				--this will also create the entry if it did not already exist
+				game_entry_container:SetSettings(master_index, settings)
+				
+				--move the entry... should we do this? players might not like this
+				if settings.plys or settings.open ~= nil then game_entry_container:CalculateScore(master_index) end
+				
+				game_settings[master_index] = table.Merge(game_settings[master_index] or {}, settings)
+			end
+		end
+	else
+		for master_index, settings in pairs(received_settings) do 
+			--if the settings are false instead of a table, they were removed
+			if settings == false then game_settings[master_index] = nil
+			else game_settings[master_index] = table.Merge(game_settings[master_index] or {}, settings) end
 		end
 	end
 	
@@ -1634,8 +1531,6 @@ net.Receive("wire_game_core_sync", function()
 		for index, data in ipairs(held_requests) do if not game_settings[data[1]] then held_requests[index][3] = true end end
 	end
 	
-	--we need a better browser sync, like one that updates the description, title, players, and joinability without resetting the whole thing
-	if IsValid(browser) then browser.Scroller:GenerateGameEntries() end
 	if game_master_index and game_settings[game_master_index] then update_game_bar() end
 end)
 

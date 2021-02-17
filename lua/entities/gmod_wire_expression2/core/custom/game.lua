@@ -172,6 +172,7 @@ local game_default_settings = {
 	player_collision = true,
 	plys = {},
 	requests = {},
+	tags = {},
 	title = "Unnamed Game"
 }
 
@@ -202,11 +203,13 @@ local game_synced_settings = { --contains the settings that are sent to clients;
 	description = true,
 	open = true,
 	plys = true,
+	tags = true,
 	title = true
 }
 
 local map_max_bounds = 32768 + 512 --512 as a buffer
 local map_min_bounds = -map_max_bounds
+local tag_count = #tags
 
 ----globals
 	--access to original, non detoured globals functions
@@ -688,17 +691,6 @@ local function game_remove_all(master_index, forced)
 	game_function_players(master_index, function(ply) if IsValid(ply) then game_remove(ply, enum) end end)
 end
 
-local function game_write_message(message_table, new_line, notification_duration)
-	local notify = notification_duration > 0 and true or false
-	
-	net.Start("wire_game_core_message")
-	net.WriteTable(message_table)
-	net.WriteBool(new_line)
-	net.WriteBool(notify)
-	
-	if notify then net.WriteFloat(notification_duration) end
-end
-
 local function game_set_closed(master_index, forced)
 	--close a game, and remove all players, forced is if the LEAVE_REMOVED enum should be provided to game_remove
 	add_sync_request(master_index)
@@ -708,6 +700,17 @@ local function game_set_closed(master_index, forced)
 	game_constructor[game_constructor[master_index]] = nil
 	game_constructor[master_index] = nil
 	game_settings[master_index] = nil
+end
+
+local function game_write_message(message_table, new_line, notification_duration)
+	local notify = notification_duration > 0 and true or false
+	
+	net.Start("wire_game_core_message")
+	net.WriteTable(message_table)
+	net.WriteBool(new_line)
+	net.WriteBool(notify)
+	
+	if notify then net.WriteFloat(notification_duration) end
 end
 
 local function get_owner(context, entity) return E2Lib.getOwner(context, entity) end
@@ -1322,6 +1325,105 @@ do
 		end
 	end
 	
+	do --tags
+		__e2setcost(2)
+		e2function number gameTagAdd(tag_id)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				local tag_id = math.Round(tag_id)
+				
+				if tag_id > 0 and tag_id <= tag_count and not game_settings[master_index].tags[tag_id] then
+					add_sync_request(master_index, "tags")
+					
+					game_settings[master_index].tags[tag_id] = true
+				end
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
+		e2function number gameTagRemove(tag_id)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				local tag_id = math.Round(tag_id)
+				
+				if tag_id > 0 and tag_id <= tag_count and game_settings[master_index].tags[tag_id] then
+					add_sync_request(master_index, "tags")
+					
+					game_settings[master_index].tags[tag_id] = nil
+				end
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
+		e2function number gameTagSet(tag_id, enabled)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				local tag_id = math.Round(tag_id)
+				
+				if tag_id > 0 and tag_id <= tag_count and game_settings[master_index].tags[tag_id] then
+					add_sync_request(master_index, "tags")
+					
+					game_settings[master_index].tags[tag_id] = enabled ~= 0 and true or nil
+				end
+				
+				return 1
+			end
+			
+			return 0
+		end
+	end
+	
+	do --toggles
+		__e2setcost(2)
+		e2function number gameEnableFallDamage(enabled)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				game_settings[master_index].block_fall_damage = enabled == 0 and true or false
+				
+				return 1
+			end
+			
+			return 0
+		end
+
+		e2function number gameEnableSuicide(enabled)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				game_settings[master_index].block_suicide = enabled == 0 and true or false
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
+		e2function number gameEnablePlayerCollision(enabled)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				game_settings[master_index].player_collision = enabled == 0 and true or false
+				
+				--we might want to make it so this can't be changed while players are in game
+				game_function_players(master_index, function(ply) ply:CollisionRulesChanged() end)
+				
+				return 1
+			end
+			
+			return 0
+		end
+	end
+	
 	do --returns
 		
 		__e2setcost(1)
@@ -1381,48 +1483,6 @@ do
 		end
 	end
 	
-	--toggles
-	do
-		__e2setcost(2)
-		e2function number gameEnableFallDamage(enabled)
-			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-			
-			if is_constructor then
-				game_settings[master_index].block_fall_damage = enabled == 0 and true or false
-				
-				return 1
-			end
-			
-			return 0
-		end
-
-		e2function number gameEnableSuicide(enabled)
-			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-			
-			if is_constructor then
-				game_settings[master_index].block_suicide = enabled == 0 and true or false
-				
-				return 1
-			end
-			
-			return 0
-		end
-		
-		e2function number gameEnablePlayerCollision(enabled)
-			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-			
-			if is_constructor then
-				game_settings[master_index].player_collision = enabled == 0 and true or false
-				
-				--we might want to make it so this can't be changed while players are in game
-				game_function_players(master_index, function(ply) ply:CollisionRulesChanged() end)
-				
-				return 1
-			end
-			
-			return 0
-		end
-	end
 end
 
 ----player defaults
@@ -1998,6 +2058,29 @@ do
 			return 1
 		end
 		
+		--can we do net.ReadTable when there is no table?
+		__e2setcost(8)
+		e2function number entity:gamePlayerMessageClear()
+			local is_participating, ply_index, chip_index, master_index = game_evaluator_player_only(self, this)
+			
+			if is_participating then
+				local count = game_message_counts[ply_index] or 0
+				
+				if count < game_max_messages then
+					if count > 0 then game_message_counts[ply_index] = count + 1
+					else
+						game_message_counts[ply_index] = 1
+						game_message_resets[ply_index] = CurTime() + 1
+					end
+					
+					net.Start("wire_game_core_message")
+					net.Send(this)
+				end
+			end
+			
+			return 1
+		end
+		
 		__e2setcost(30)
 		e2function number gamePlayerMessage(notification_duration, ...)
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
@@ -2073,6 +2156,51 @@ do
 					return 1
 				end
 			end
+			
+			return 0
+		end
+		
+		__e2setcost(20)
+		e2function number gamePlayerMessageClear()
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				local filter = RecipientFilter()
+				local reset_time = CurTime() + 1
+				local send = false
+				
+				game_function_players(master_index, function(ply, ply_index)
+					local count = game_message_counts[ply_index] or 0
+					
+					if count < game_max_messages then
+						if count > 0 then game_message_counts[ply_index] = count + 1
+						else
+							game_message_counts[ply_index] = 1
+							game_message_resets[ply_index] = reset_time
+						end
+						
+						send = true
+						
+						filter:AddPlayer(ply)
+					end
+				end)
+				
+				if send then
+					net.Start("wire_game_core_message")
+					net.Send(filter)
+					
+					return 1
+				end
+			end
+			
+			return 0
+		end
+		
+		--can send message
+		e2function number entity:gameMessageCanSend()
+			local is_participating, ply_index, chip_index, master_index = game_evaluator_player_only(self, this)
+			
+			if is_participating then return (game_message_counts[ply_index] or 0) < game_max_messages end
 			
 			return 0
 		end

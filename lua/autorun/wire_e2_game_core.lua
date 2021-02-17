@@ -15,9 +15,10 @@ local config = {
 		},
 		
 		panels = {
-			browser_game_entry = 5,		--0 101
-			browser_tag = 5,			--0 101
-			browser_tag_container = 5	--0 101
+			browser_game_entry = 5,				--0 101
+			browser_game_entry_container = 5,	--0 101
+			browser_tag = 5,					--0 101
+			browser_tag_container = 5			--0 101
 		}
 	}
 }

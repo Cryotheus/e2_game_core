@@ -3,7 +3,21 @@ local PANEL = {}
 --todo: clean up code style
 --silly goose do not pick up the code style of this file
 
+PANEL.PlayerCount = 0
+
 local canvas_animation_curve = math.pi * 0.5
+local game_settings_functions = {
+	--wow, it was not supposed to be this simple... I might simplify this down because this is over engineered right now
+	description = function(self, value) self:SetDescription(value) end,
+	open = function(self, value) self:SetJoinable(value) end,
+	plys = function(self, value) self:SetPlayersByEntityIndexKeys(value) end,
+	tags = function(self, value) self:SetTagsByKeys(value) end,
+	title = function(self, value) self:SetTitle(value) end
+}
+
+local tag_colors = {}
+
+for tag_id, tag_info in pairs(include("wire_game_core/includes/tags.lua")) do tag_colors[tag_id] = tag_info[2] end
 
 ----colors
 	local associated_colors = include("wire_game_core/includes/colors.lua")
@@ -25,9 +39,9 @@ local canvas_animation_curve = math.pi * 0.5
 	AccessorFunc(PANEL, "CanvasHeight", "CanvasHeight", FORCE_NUMBER)
 	AccessorFunc(PANEL, "Description", "Description")
 	AccessorFunc(PANEL, "HeaderHeight", "HeaderHeight", FORCE_NUMBER)
+	AccessorFunc(PANEL, "Joinable", "Joinable", FORCE_BOOL)
 	AccessorFunc(PANEL, "Master", "Master")
 	AccessorFunc(PANEL, "MasterIndex", "MasterIndex", FORCE_NUMBER)
-	AccessorFunc(PANEL, "Open", "Open", FORCE_BOOL)
 	AccessorFunc(PANEL, "Score", "Score", FORCE_NUMBER)
 	AccessorFunc(PANEL, "Title", "Title", FORCE_STRING)
 
@@ -38,6 +52,7 @@ surface.CreateFont("WGCBrowserGEPlayerName", {
 
 --panel functions
 function PANEL:AddTag(...) self.TagContainer:Add(...) end
+function PANEL:CalculateScore() self:SetScore(self.PlayerCount + (self.Joinable and 257 or 0)) end
 
 function PANEL:DoClick()
 	local canvas = self.Canvas
@@ -303,10 +318,6 @@ function PANEL:Init()
 					self.LabelPlayersHeader = label
 				end
 				
-				do --body
-					
-				end
-				
 				function panel:AddPlayer(ply)
 					local panel_player = vgui.Create("DPanel", panel)
 					local valid_player = IsValid(ply)
@@ -347,8 +358,18 @@ function PANEL:Init()
 				function panel:PerformLayout(width, height) self:SizeToChildren(false, true) end
 				
 				function panel:SetPlayers(plys)
+					local ply_count = 0
+					
 					for index, panel in ipairs(self:GetChildren()) do if panel.Removable then panel:Remove() end end
-					for index, ply in ipairs(plys) do self:AddPlayer(ply) end
+					
+					for index, ply in ipairs(plys) do
+						ply_count = ply_count + 1
+						
+						self:AddPlayer(ply)
+					end
+					
+					--worlds smallest optimization
+					game_entry.PlayerCount = ply_count
 				end
 				
 				panel_canvas.PanelPlayers = panel
@@ -408,6 +429,8 @@ function PANEL:SetHeaderHeight(height)
 end
 
 function PANEL:SetJoinable(joinable)
+	joinable = tobool(joinable) or false
+	
 	if joinable then
 		local join_button = self.ButtonJoin
 		
@@ -432,6 +455,8 @@ function PANEL:SetJoinable(joinable)
 		self.ButtonJoin:SetVisible(false)
 		self.Canvas:SetActive(false)
 	end
+	
+	self.Joinable = joinable
 end
 
 function PANEL:SetMaster(master)
@@ -470,6 +495,29 @@ function PANEL:SetPlayersByEntityIndexKeys(ply_indices)
 	for ply_index in pairs(ply_indices) do table.insert(plys, Entity(ply_index)) end
 	
 	self.PanelPlayers:SetPlayers(plys)
+end
+
+function PANEL:SetScore(score)
+	self:InvalidateParent()
+	self:SetZPos(score + 1)
+	
+	self.Score = score
+end
+
+function PANEL:SetSettings(game_settings)
+	for setting, value in pairs(game_settings) do
+		local game_settings_function = game_settings_functions[setting]
+		
+		if game_settings_function then game_settings_function(self, value) end
+	end
+end
+
+function PANEL:SetTagsByKeys(tags)
+	local tag_container = self.TagContainer
+	
+	tag_container:Clear()
+	
+	for tag_id in pairs(tags) do tag_container:Add(tag_id, nil, tag_colors[tag_id]) end
 end
 
 function PANEL:SetTitle(text) self.Header:SetText(text) end

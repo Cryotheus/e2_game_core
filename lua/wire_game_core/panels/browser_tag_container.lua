@@ -1,9 +1,12 @@
 local PANEL = {}
 
-AccessorFunc(PANEL, "Font", "Font", FORCE_STRING)
-AccessorFunc(PANEL, "TagHeight", "TagHeight", FORCE_NUMBER)
-AccessorFunc(PANEL, "TagSpacingX", "TagSpacingX", FORCE_NUMBER)
-AccessorFunc(PANEL, "TagSpacingY", "TagSpacingY", FORCE_NUMBER)
+PANEL.Tags = {}
+
+----accessor funcs
+	AccessorFunc(PANEL, "Font", "Font", FORCE_STRING)
+	AccessorFunc(PANEL, "TagHeight", "TagHeight", FORCE_NUMBER)
+	AccessorFunc(PANEL, "TagSpacingX", "TagSpacingX", FORCE_NUMBER)
+	AccessorFunc(PANEL, "TagSpacingY", "TagSpacingY", FORCE_NUMBER)
 
 function PANEL:Add(tag_id, tag_text, tag_color, tag_color_g, tag_color_b)
 	--tag_color_g and tag_color_b are optional, as tag_color can be a color instead of number
@@ -24,9 +27,15 @@ function PANEL:Add(tag_id, tag_text, tag_color, tag_color_g, tag_color_b)
 	return tag
 end
 
-function PANEL:Init()
-	self.Tags = {}
+function PANEL:Clear()
+	for tag_id, tag in pairs(self.Tags) do tag:Remove() end
 	
+	self:InvalidateLayout()
+	
+	self.Tags = {}
+end
+
+function PANEL:Init()
 	self:SetFont()
 	self:SetTagHeight()
 	self:SetTagSpacingX()
