@@ -518,7 +518,7 @@ function PANEL:SetTagsByKeys(tags)
 	
 	tag_container:Clear()
 	
-	for tag_id in pairs(tags) do tag_container:Add(tag_id, nil, tag_colors[tag_id]) end
+	for tag_id in pairs(tags) do tag_container:Add(tag_names[tag_id], nil, tag_colors[tag_id]) end
 end
 
 function PANEL:SetTitle(text) self.Header:SetText(text) end
