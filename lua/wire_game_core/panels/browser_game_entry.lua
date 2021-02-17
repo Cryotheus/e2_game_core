@@ -16,8 +16,9 @@ local game_settings_functions = {
 }
 
 local tag_colors = {}
+local tag_names = {}
 
-for tag_id, tag_info in pairs(include("wire_game_core/includes/tags.lua")) do tag_colors[tag_id] = tag_info[2] end
+for tag_id, tag_info in pairs(include("wire_game_core/includes/tags.lua")) do tag_names[tag_id], tag_colors[tag_id] = unpack(tag_info) end
 
 ----colors
 	local associated_colors = include("wire_game_core/includes/colors.lua")
