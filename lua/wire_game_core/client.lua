@@ -1496,7 +1496,7 @@ net.Receive("wire_game_core_sync", function()
 	--not sufficient! we need to stop using net.WriteTable!
 	local received_settings = net.ReadTable()
 	
-	if IsValid(browser) then
+	if IsValid(browser) and IsValid(browser.GameEntryContainer) then
 		local game_entry_container = browser.GameEntryContainer
 		
 		for master_index, settings in pairs(received_settings) do 

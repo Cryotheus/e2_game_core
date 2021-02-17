@@ -4,7 +4,9 @@ PANEL.GameEntries = {}
 
 --panel functions
 function PANEL:AddEntry(master_index, game_settings, height)
-	local game_entry = self.GameEntries[master_index] or vgui.Create("WGCBrowserGameEntry", self)
+	local game_entry = self.GameEntries[master_index]
+	
+	if not IsValid(game_entry) then game_entry = vgui.Create("WGCBrowserGameEntry", self) end
 	
 	game_entry:Dock(TOP)
 	game_entry:DockMargin(4, 4, 4, 0)
