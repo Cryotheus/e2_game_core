@@ -16,6 +16,8 @@ function PANEL:AddEntry(master_index, game_settings, height)
 	game_entry:SetSettings(game_settings)
 	game_entry:CalculateScore()
 	
+	self.GameEntries[master_index] = game_entry
+	
 	return game_entry
 end
 
