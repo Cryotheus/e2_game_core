@@ -2,6 +2,7 @@
 --tables
 local game_blocks = {}				--y stores the blocked players, may not be used;	k: master index,		v: true
 local game_blocks_check_boxes = {}	--y stores the checkbox panel for every player;		k: master index,		v: panel
+local game_collidables = {}			--y
 local game_masters = {}				--y used to fetch the player's game master;			k: player index,		v: master index
 local game_settings = {}			--y stores the settings for each players game;		k: master index,		v: table where (k: setting name, v: setting value)
 local held_requests = {}			--y stores requests the player has received;		k: sequential index,	v: table where (k: setting num, v: setting data)
@@ -71,6 +72,8 @@ local open_request_gui
 	local game_bar_h
 	local game_bar_header = 36
 	local game_bar_open = false
+	local game_bar_sidebar_h
+	local game_bar_sidebar_w
 	local game_bar_w
 	local game_bar_x
 	local game_bar_y
@@ -685,6 +688,29 @@ local function generate_settings_form(form)
 	generate_block_form()
 end
 
+local function get_owner_contextless(entity)
+	if entity.GetPlayer then
+		local ply = entity:GetPlayer()
+		
+		if IsValid(ply) then return ply end
+	end
+	
+	local on_die_functions = entity.OnDieFunctions
+	
+	if on_die_functions then
+		local get_count_update = on_die_functions.GetCountUpdate
+		
+		if get_count_update and get_count_update.Args and get_count_update.Args[1] then return get_count_update.Args[1] end
+		if on_die_functions.undo1 and on_die_functions.undo1.Args and on_die_functions.undo1.Args[2] then return on_die_functions.undo1.Args[2] end
+	end
+	
+	if entity.GetOwner then
+		local ply = entity:GetOwner()
+		
+		if IsValid(ply) then return ply end
+	end
+end
+
 open_browser = function(icon, window)
 	----browser
 		--why does it layout every frame?
@@ -734,7 +760,6 @@ open_browser = function(icon, window)
 			end
 		end
 	
-	
 	do --the icon on the top left, clicking it will take you to the workshop page
 		local button_icon = vgui.Create("DButton", browser)
 		
@@ -761,25 +786,26 @@ open_browser = function(icon, window)
 		label_info:SetWrap(true)
 	end
 	
-	do
+	do --game entry container
 		game_entry_container = vgui.Create("WGCBrowserGameEntryContainer", browser)
 		
-		browser.GameEntryHeaders = {}
 		game_entry_container.FrameBrowser = browser
+		game_entry_container.GameEntryHeaders = {}
 		
 		game_entry_container:Dock(FILL)
 		game_entry_container:DockMargin(0, browser_baseboard_h - 5, 0, 0)
 		
 		for master_index, settings in pairs(game_settings) do
-			local game_entry = game_entry_container:AddEntry(master_index, settings, browser_button_h)
+			local game_entry = game_entry_container:AddEntry(master_index, settings)
 			
-			table.insert(browser.GameEntryHeaders, game_entry.Header)
+			game_entry_container.GameEntryHeaders[master_index] = game_entry.Header
 		end
 		
 		browser.GameEntryContainer = game_entry_container
 	end
 	
-	do --test panel
+	do --panel for fancy graphics
+		--we does this weird bullshit so we don't have to do weird hook bullshit
 		panel_cogs = vgui.Create("DPanel", browser)
 		
 		panel_cogs:Dock(FILL)
@@ -787,6 +813,7 @@ open_browser = function(icon, window)
 		panel_cogs:SetMouseInputEnabled(false)
 		panel_cogs:SetZPos(1)
 		
+		--TODO: cache these functions!
 		function panel_cogs:Paint(width, height)
 			render.ClearStencil()
 			render.SetStencilCompareFunction(STENCIL_NEVER)
@@ -798,11 +825,11 @@ open_browser = function(icon, window)
 			render.SetStencilWriteMask(0xFF)
 			render.SetStencilZFailOperation(STENCIL_KEEP)
 			
-			for index, panel in ipairs(browser.GameEntryHeaders) do
-				local x, y = self:ScreenToLocal(panel:LocalToScreen())
+			for master_index, header in pairs(game_entry_container.GameEntryHeaders) do
+				local x, y = self:ScreenToLocal(header:LocalToScreen())
 				
 				fl_surface_SetDrawColor(255, 255, 255)
-				fl_surface_DrawRect(x, y, panel:GetSize())
+				fl_surface_DrawRect(x, y, header:GetSize())
 			end
 			
 			render.SetStencilFailOperation(STENCIL_INCR)
@@ -819,7 +846,7 @@ open_browser = function(icon, window)
 			draw_cogs(browser_cogs)
 			draw_cogs(browser_cogs_2)
 			
-			for index, panel in ipairs(browser.GameEntryHeaders) do panel:PaintManual() end
+			for master_index, header in pairs(game_entry_container.GameEntryHeaders) do header:PaintManual() end
 			
 			render.SetStencilEnable(false)
 		end
@@ -974,6 +1001,10 @@ local function request_full_sync()
 	net.SendToServer()
 end
 
+local function should_collide(ply, obstacle)
+	
+end
+
 local function update_game_bar()
 	game_bar.label_title:SetText(game_settings[game_master_index].title)
 	game_bar.label_master:SetText(translate("wire_game_core.bar.host", {name = game_master:Nick()}))
@@ -983,56 +1014,10 @@ end
 calc_vars()
 
 --concommand
-concommand.Add("wire_game_core_reload_internal", function()
-	--this stuff is also being used for autoreload, but is safe to run anyways
-	local hooks = hook.GetTable()
-	local world_panel = vgui.GetWorldPanel()
-	
-	local found_context_menu = world_panel:Find("ContextMenu")
-	local found_game_bar = world_panel:Find("WireGameCoreGameBar")
-	local found_pop_up = world_panel:Find("WireGameCoreRequest")
-	
-	if found_game_bar then found_game_bar:Remove() end
-	if found_pop_up then found_pop_up:Remove() end
-	
-	hooks.ContextMenuCreated.wire_game_core(found_context_menu) --my old method, but now we have to recreate it when working with desktop icons
-	hooks.InitPostEntity.wire_game_core()
-end, nil, "Debug for game core, will be removed,")
-
 concommand.Add("wire_game_core_debug", function()
 	print("game_settings")
 	PrintTable(game_settings, 1)
 end, nil, "Debug info for game core.")
-
-concommand.Add("wire_game_core_debug_cogs", function()
-	local frame = vgui.Create("DFrame")
-	
-	frame:SetSize(800, 800)
-	frame:SetTitle("Cog Debugger")
-	
-	local cog_panel = vgui.Create("DPanel", frame)
-	
-	cog_panel:Dock(FILL)
-	cog_panel:DockMargin(4, 4, 4, 4)
-	
-	function cog_panel:Paint(w, h)
-		fl_surface_SetDrawColor(color_dark)
-		fl_surface_DrawRect(0, 0, w, h)
-		
-		draw_cogs(pop_up_cogs)
-	end
-	
-	frame:Center()
-	frame:MakePopup()
-end, nil, "Debug for game core, used to debug the cog algorithm.")
-
-concommand.Add("wire_game_core_debug_rich", function(ply, command, args, text)
-	if game_master and game_bar then
-		local rich_text = game_bar.rich_text
-		
-		rich_text:AppendText("\n" .. text)
-	end
-end, nil, "Debug for game core, used to debug the cog algorithm.")
 
 --cvars
 cvars.AddChangeCallback("wire_game_core_request_duration", function() pop_up_duration = wire_game_core_request_duration:GetFloat() end)
@@ -1339,13 +1324,16 @@ hook.Add("PopulateToolMenu", "wire_game_core", function() spawnmenu.AddToolMenuO
 --hook.Add("SpawnMenuOpen", "wire_game_core", function() if game_master_index then return false end end)
 
 hook.Add("ShouldCollide", "wire_game_core", function(ent_1, ent_2)
+	
+	
+	--[[
 	if ent_1:IsPlayer() and ent_2:IsPlayer() then
 		local ent_1_master = game_masters[ent_1:EntIndex()]
 		local ent_2_master = game_masters[ent_2:EntIndex()]
 		
-		if ent_1_master and ent_1_master == ent_2_master then return game_settings[ent_1_master].player_collision end
+		if ent_1_master and ent_1_master == ent_2_master then return game_settings[ent_1_master].ply_collide end
 		if ent_1_master ~= ent_2_master then return false end
-	end
+	end --]]
 	
 	return true
 end)
@@ -1374,6 +1362,24 @@ net.Receive("wire_game_core_block_update", function()
 		if new_ply then add_block_checkbox(Entity(ply_index))
 		else game_blocks_check_boxes[ply_index]:Remove() end
 	end
+end)
+
+net.Receive("wire_game_core_collidables", function()
+	--todo: more networked tables like this
+	repeat
+		local master_index = net.ReadUInt(8)
+		
+		repeat
+			local ent_index = net.ReadUInt(13)
+			local collidable = net.ReadBool() or nil --if it's false, just make it nil
+			
+			if game_collidables[master_index] then game_collidables[master_index][ent_index] = collidable
+			elseif collidable then game_collidables[master_index] = {[ent_index] = collidable} end
+		until not net.ReadBool()
+		
+		--discard the bitch
+		if table.IsEmpty(game_collidables[master_index]) then game_collidables[master_index] = nil end
+	until not net.ReadBool()
 end)
 
 net.Receive("wire_game_core_join", function()
@@ -1501,13 +1507,21 @@ net.Receive("wire_game_core_sync", function()
 		
 		for master_index, settings in pairs(received_settings) do 
 			--if the settings are false instead of a table, they were removed
+			local game_entry = game_entry_container:GetEntry(master_index) --game_entry
+			
 			if settings == false then
+				--remove entry
 				game_entry_container:RemoveEntry(master_index)
 				
+				--don't need this anymore looool
+				game_entry_container.GameEntryHeaders[master_index] = nil
 				game_settings[master_index] = nil
 			else
 				--this will also create the entry if it did not already exist
-				game_entry_container:SetSettings(master_index, settings)
+				local new_game_entry = game_entry_container:SetSettings(master_index, settings)
+				
+				--because we have a fancy stencil...
+				if not game_entry then game_entry_container.GameEntryHeaders[master_index] = new_game_entry.Header end
 				
 				--move the entry... should we do this? players might not like this
 				if settings.plys or settings.open ~= nil then game_entry_container:CalculateScore(master_index) end
@@ -1535,5 +1549,18 @@ net.Receive("wire_game_core_sync", function()
 end)
 
 --auto reload, will be removed in the future
-if WireGameCore then RunConsoleCommand("wire_game_core_reload_internal")
+if WireGameCore then
+	--this stuff is also being used for autoreload, but is safe to run anyways
+	local hooks = hook.GetTable()
+	local world_panel = vgui.GetWorldPanel()
+	
+	local found_context_menu = world_panel:Find("ContextMenu")
+	local found_game_bar = world_panel:Find("WireGameCoreGameBar")
+	local found_pop_up = world_panel:Find("WireGameCoreRequest")
+	
+	if found_game_bar then found_game_bar:Remove() end
+	if found_pop_up then found_pop_up:Remove() end
+	
+	hooks.ContextMenuCreated.wire_game_core(found_context_menu) --my old method, but now we have to recreate it when working with desktop icons
+	hooks.InitPostEntity.wire_game_core()
 else WireGameCore = true end

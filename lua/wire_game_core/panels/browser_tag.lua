@@ -30,7 +30,7 @@ function PANEL:PerformLayout(width, height)
 	
 	self:SetSize(text_width + 8, text_height + 4)
 end
---coop 0.87, strategy 0.49, survival 0.54
+
 function PANEL:SetTagColor(r, g, b)
 	local color = isnumber(r) and Color(r, g or 0, b or 0) or r
 	local h, s, v = ColorToHSV(color)
@@ -40,4 +40,5 @@ function PANEL:SetTagColor(r, g, b)
 	self.TagColor = color
 end
 
+--post
 derma.DefineControl("WGCBrowserTag", "A panel for the Wire Game Core's Game Browser.", PANEL, "DLabel")

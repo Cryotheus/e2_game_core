@@ -3,8 +3,6 @@ local PANEL = {}
 --todo: clean up code style
 --silly goose do not pick up the code style of this file
 
-PANEL.PlayerCount = 0
-
 local canvas_animation_curve = math.pi * 0.5
 local game_settings_functions = {
 	--wow, it was not supposed to be this simple... I might simplify this down because this is over engineered right now
@@ -58,13 +56,15 @@ function PANEL:CalculateScore() self:SetScore(self.PlayerCount + (self.Joinable 
 function PANEL:DoClick()
 	local canvas = self.Canvas
 	
-	canvas:SetActive(not canvas:GetActive())
+	canvas:SetActive(not canvas.Active)
 end
 
 function PANEL:Init()
 	self:SetText("")
 	
-	self.HeaderHeight = self:GetTall()
+	self.MasterIndex = 0
+	self.PlayerCount = 0
+	self.Score = 0
 	
 	----header
 	do
@@ -215,14 +215,14 @@ function PANEL:Init()
 					self.Percent = percent
 					
 					if percent == 0 then
-						game_entry:SetHeight(game_entry:GetHeaderHeight())
+						game_entry:SetHeight(game_entry.HeaderHeight)
 						
 						self:SetHeight(self.CanvasHeight)
 						self:SetVisible(false)
 					else
 						local height = self.CanvasHeight * math.sin(percent * canvas_animation_curve) ^ 0.75
 						
-						game_entry:SetHeight(height + game_entry:GetHeaderHeight())
+						game_entry:SetHeight(height + game_entry.HeaderHeight)
 						self:SetHeight(height)
 					end
 				end
@@ -244,7 +244,16 @@ function PANEL:Init()
 				
 				if animate_expansion and height > canvas_height and self.Active then self.Percent = self.Percent * canvas_height / height end
 				
+				print("change canvas height from " .. canvas_height .. " to " .. height)
+				
 				self.CanvasHeight = height
+			end
+			
+			function panel_canvas:UpdateHeight()
+				local height = self.CanvasHeight * math.sin(self.Percent * canvas_animation_curve) ^ 0.75
+				
+				game_entry:SetHeight(height + game_entry.HeaderHeight)
+				self:SetHeight(height)
 			end
 			
 			panel_canvas:SetActive(false)
@@ -378,6 +387,9 @@ function PANEL:Init()
 			end
 		end
 	end
+	
+	--after canvas!
+	self:SetHeaderHeight(136)
 end
 
 function PANEL:Paint(width, height)
@@ -392,10 +404,10 @@ end
 
 function PANEL:PerformLayout(width, height)
 	local canvas = self.Canvas
-	local canvas_height = canvas:GetTall()
 	local header_height = self:GetHeaderHeight()
 	
 	canvas:SetWide(width)
+	--canvas:UpdateHeight()
 	
 	self.ButtonJoin:DockMargin(0, 4, 4, header_height * 0.75 + 4)
 	self.PanelHostCard:SetWide(math.min(width * 0.2, header_height * 0.7), header_height - 8)
@@ -499,18 +511,25 @@ function PANEL:SetPlayersByEntityIndexKeys(ply_indices)
 end
 
 function PANEL:SetScore(score)
-	self:InvalidateParent()
-	self:SetZPos(score + 1)
-	
 	self.Score = score
+	
+	self:InvalidateParent()
+	self:SetZPos(771 - score) --257 (game prioritized) + 257 (game open) + 256 (game max players) + 1 (to maintain a +0 zpos) = 771
 end
 
 function PANEL:SetSettings(game_settings)
+	--accommodates culled game settings
+	local canvas = self.Canvas
+	
 	for setting, value in pairs(game_settings) do
 		local game_settings_function = game_settings_functions[setting]
 		
+		--we don't mess with the panel on ply_collide
 		if game_settings_function then game_settings_function(self, value) end
 	end
+	
+	canvas:InvalidateChildren(true)
+	canvas:UpdateHeight()
 end
 
 function PANEL:SetTagsByKeys(tags)

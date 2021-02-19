@@ -8,6 +8,7 @@ resource.AddFile("resource/localization/en/wire_game_core.properties") --needed 
 --this would cut down on the amount of network strings I am using, but increase code complexity a little bit
 util.AddNetworkString("wire_game_core_block")
 util.AddNetworkString("wire_game_core_block_update")
+util.AddNetworkString("wire_game_core_collidables")
 util.AddNetworkString("wire_game_core_join")
 util.AddNetworkString("wire_game_core_leave")
 util.AddNetworkString("wire_game_core_message")

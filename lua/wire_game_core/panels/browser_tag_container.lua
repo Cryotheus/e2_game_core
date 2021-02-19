@@ -1,13 +1,12 @@
 local PANEL = {}
 
-PANEL.Tags = {}
-
 ----accessor funcs
 	AccessorFunc(PANEL, "Font", "Font", FORCE_STRING)
 	AccessorFunc(PANEL, "TagHeight", "TagHeight", FORCE_NUMBER)
 	AccessorFunc(PANEL, "TagSpacingX", "TagSpacingX", FORCE_NUMBER)
 	AccessorFunc(PANEL, "TagSpacingY", "TagSpacingY", FORCE_NUMBER)
 
+--panel functions
 function PANEL:Add(tag_id, tag_text, tag_color, tag_color_g, tag_color_b)
 	--tag_color_g and tag_color_b are optional, as tag_color can be a color instead of number
 	--get the existing tag
@@ -36,6 +35,8 @@ function PANEL:Clear()
 end
 
 function PANEL:Init()
+	self.Tags = {}
+	
 	self:SetFont()
 	self:SetTagHeight()
 	self:SetTagSpacingX()
@@ -107,4 +108,5 @@ function PANEL:SetTagSpacingY(spacing)
 	self:InvalidateLayout()
 end
 
+--post
 derma.DefineControl("WGCBrowserTagContainer", "A panel for the Wire Game Core's Game Browser.", PANEL, "DSizeToContents")

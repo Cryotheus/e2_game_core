@@ -3,13 +3,14 @@ local entity_meta = FindMetaTable("Entity")
 local game_blocks = {}			--y for players who blocked others;				k: player index,		v: table where (k: master index, v: true)
 local game_camera_counts = {}	--y for cameras the master makes;				k: master index,		v: number
 local game_cameras = {}			--y for cameras the master makes;				k: master index,		v: table where
+local game_collidables = {}		--y stores collidable props for game players;	k: master index,		v: table where (k: master index, v: true)
 local game_constructor = {}		--y for getting the game chip and master;		k: chip/master index,	v: master/chip index
 local game_damage_dealt = {}	--y stores dealt damage multipliers;			k: player index,		v: multiplier
 local game_damage_taken = {}	--y stores dealt damage multipliers;			k: player index,		v: multiplier
-local game_describe_delay = {}	--n stores reset times for game descriptions	k: master index,		v: when they can next set the description
+local game_describe_delay = {}	--n stores reset times for game descriptions;	k: master index,		v: when they can next set the description
 local game_masters = {}			--y used to fetch the player's game master;		k: player index,		v: master index
-local game_message_counts = {}	--y stores the amount of messages sent so far	k: player index,		v: count of message
-local game_message_resets = {}	--y stores reset times for message cooldowns	k: player index,		v: CurTime when it happens
+local game_message_counts = {}	--y stores the amount of messages sent so far;	k: player index,		v: count of message
+local game_message_resets = {}	--y stores reset times for message cooldowns;	k: player index,		v: CurTime when it happens
 local game_request_delays = {}	--y to delay requests to certain players;		k: master index,		v: table where (k: recipient index, v: cur_time when they can send another request to the player)
 local game_respawns = {}		--y used to store the player's respawn delay;	k: player index,		v: time when the player can respawn
 local game_settings = {}		--y stores the settings for each players game;	k: master index,		v: table where (k: setting name, v: setting value)
@@ -19,15 +20,15 @@ local ply_settings = {}			--y for restoring the player;					k: player index,		v:
 local tags = include("wire_game_core/includes/tags.lua") --y					k: sequential index		v: table where (1: tag id, 2: color)
 
 ----network queue tables
-	local queue_game_cameras = {}	--y stores the camera's updated nwvars;			k: camera entity,	v: table where (k: var name, v: value)
-	local queue_game_masters = {}	--y for syncing the game_masters table;			don't remember, should probably check
-	local queue_game_requests = {}	--y	stores the requests that are getting sent;	k: player index,	v: table where (k: master index, v: true)
-	local queue_game_sounds = {}	--y stores sounds to play on the player;		k: player index,	v: table where (k: sequential index, v: sound path)
-	local queue_game_sync = {}		--y stores what settings need syncing;			k: master index,	v: true
-	local queue_game_sync_full = {}	--y stores what players need a full sync;		k: player index,	v: true
+	local queue_game_collidables = {}	--y
+	local queue_game_masters = {}		--y for syncing the game_masters table;			don't remember, should probably check
+	local queue_game_requests = {}		--y	stores the requests that are getting sent;	k: player index,	v: table where (k: master index, v: true)
+	local queue_game_sounds = {}		--y stores sounds to play on the player;		k: player index,	v: table where (k: sequential index, v: sound path)
+	local queue_game_sync = {}			--y stores what settings need syncing;			k: master index,	v: true
+	local queue_game_sync_full = {}		--y stores what players need a full sync;		k: player index,	v: true
 
 ----network queue checks
-	local queue_game_cameras = false
+	local queue_game_collidables_check = false
 	local queue_game_masters_check = false
 	local queue_game_requests_check = false
 	local queue_game_sounds_check = false
@@ -169,7 +170,7 @@ local game_default_settings = {
 	block_fall_damage = false,
 	block_suicide = false,
 	open = false,
-	player_collision = true,
+	ply_collide = true,
 	plys = {},
 	requests = {},
 	tags = {},
@@ -202,6 +203,7 @@ local game_respawn_functions = {
 local game_synced_settings = { --contains the settings that are sent to clients; k: setting name, v: true
 	description = true,
 	open = true,
+	ply_collide = true,
 	plys = true,
 	tags = true,
 	title = true
@@ -239,6 +241,13 @@ local function nan(num) return num ~= num end
 --local functions
 local function active_game(ply) if game_masters[ply:EntIndex()] then return true end end
 local function active_game_inv(ply) if game_masters[ply:EntIndex()] then return false end end
+
+local function add_collidable_sync_request(master_index, ent_index, collidable)
+	if queue_game_collidables[master_index] then queue_game_collidables[master_index][ent_index] = collidable or false
+	else queue_game_collidables[master_index] = {[ent_index] = collidable or false} end
+	
+	queue_game_collidables_check = true
+end
 
 local function add_full_sync_request(ply_index)
 	queue_game_sync_full[ply_index] = true
@@ -385,6 +394,7 @@ local function construct_game_settings(master_index)
 	local master = Entity(master_index)
 	local master_name = master:Nick()
 	
+	game_collidables[master_index] = {}
 	game_settings[master_index] = table.Copy(game_default_settings)
 	game_settings[master_index].title = master_name .. (master_name[string.len(master_name)] == "s" and "' Game" or "'s Game")
 end
@@ -697,6 +707,7 @@ local function game_set_closed(master_index, forced)
 	camera_remove_all(master_index)
 	game_remove_all(master_index, forced)
 	
+	game_collidables[master_index] = nil
 	game_constructor[game_constructor[master_index]] = nil
 	game_constructor[master_index] = nil
 	game_settings[master_index] = nil
@@ -773,6 +784,23 @@ local function parse_message(type_ids, ...)
 	end
 	
 	return message_table
+end
+
+local function should_collide(ply, obstacle, ply_index, obstacle_index)
+	local master_index = game_masters[ply_index]
+	
+	--players in same game have their collisions determined by game settings
+	--other players are not collided with
+	if obstacle:IsPlayer() then
+		if game_masters[obstacle_index] == master_index then return game_settings[master_index].ply_collide end
+		
+		return false
+	end
+	
+	if game_collidables[obstacle_index] or obstacle:IsWorld() then return true end
+	
+	--do we HAVE to return a value? was mitch lying?
+	return false
 end
 
 --post function setup
@@ -1153,8 +1181,41 @@ end
 --SwitchToDefaultWeapon
 ----game management
 do
-	--management
-	do
+	do --collidables
+		__e2setcost(6)
+		e2function number entity:gameCollidable(number state)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor and IsValid(this) then
+				if this:IsPlayer() then return 0 end
+				
+				if owned_by_master(self, this) then
+					state = state ~= 0 or nil
+					
+					if game_collidables[master_index] ~= state then
+						local this_index = this:EntIndex()
+						
+						add_collidable_sync_request(master_index, this_index, state)
+						
+						--might need to be done on the entity with custom collisions...
+						this:CollisionRulesChanged()
+						
+						if game_collidables[master_index] then
+							game_collidables[master_index][ent_index] = state
+							
+							if table.IsEmpty(game_collidables[master_index]) then game_collidables[master_index] = nil end
+						elseif state then game_collidables[master_index] = {[ent_index] = state} end
+						
+						return 1
+					end
+				end
+			end
+			
+			return 0
+		end
+	end
+	
+	do --management
 		__e2setcost(10)
 		e2function number gameClose()
 			local chip_index = self.entity:EntIndex()
@@ -1412,9 +1473,10 @@ do
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 			
 			if is_constructor then
-				game_settings[master_index].player_collision = enabled == 0 and true or false
+				game_settings[master_index].ply_collide = enabled == 0 and true or false
 				
 				--we might want to make it so this can't be changed while players are in game
+				add_sync_request(master_index, "ply_collide")
 				game_function_players(master_index, function(ply) ply:CollisionRulesChanged() end)
 				
 				return 1
@@ -1482,7 +1544,6 @@ do
 			return {}
 		end
 	end
-	
 end
 
 ----player defaults
@@ -1683,8 +1744,7 @@ end
 
 ----player control
 do
-	--camera
-	do
+	do --camera
 		__e2setcost(6)
 		e2function number entity:gamePlayerSetCamera()
 			local is_participating, ply_index, chip_index, master_index = game_evaluator_player_only(self, this)
@@ -1718,8 +1778,7 @@ do
 		end
 	end
 	
-	--damage, and respawn
-	do
+	do --damage, and respawn
 		__e2setcost(12)
 		e2function number gamePlayerKill()
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
@@ -1837,8 +1896,7 @@ do
 		end
 	end
 	
-	--health
-	do
+	do --health
 		__e2setcost(10)
 		e2function number gamePlayerSetArmor(amount)
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
@@ -1951,8 +2009,7 @@ do
 		end
 	end
 	
-	--physics
-	do
+	do --physics
 		__e2setcost(12)
 		e2function number entity:gamePlayerApplyForce(vector force)
 			local is_participating = game_evaluator_player_only(self, this)
@@ -2005,8 +2062,7 @@ do
 		end
 	end
 	
-	--messaging
-	do
+	do --messaging
 		__e2setcost(12)
 		e2function number entity:gamePlayerMessage(notification_duration, ...)
 			local is_participating, ply_index, chip_index, master_index = game_evaluator_player_only(self, this)
@@ -2206,8 +2262,7 @@ do
 		end
 	end
 	
-	--movement
-	do
+	do --movement
 		__e2setcost(10)
 		e2function number gamePlayerSetCrouchSpeedMultiplier(multiplier)
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
@@ -2366,9 +2421,8 @@ do
 			return 0
 		end
 	end
-
-	--sound, and more to come like voice chat restriction
-	do
+	
+	do --sound
 		__e2setcost(20)
 		e2function number gamePlayerPlaySound(string sound_path)
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
@@ -2419,8 +2473,7 @@ do
 		end
 	end
 	
-	--strip
-	do
+	do --strip
 		__e2setcost(10)
 		e2function number gamePlayerStripAmmo()
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
@@ -2510,7 +2563,7 @@ do
 			local is_participating = game_evaluator_player_only(self, this)
 			
 			if is_participating then
-				fl_Player_StripWeapons(this)  --use undetoured
+				fl_Player_StripWeapons(this)
 				
 				return 1
 			end
@@ -2523,7 +2576,7 @@ do
 			local is_participating = game_evaluator_player_only(self, this)
 			
 			if is_participating then
-				this:StripWeapon(weapon_class)  --use undetoured
+				this:StripWeapon(weapon_class) --use undetoured
 				
 				return 1
 			end
@@ -2532,10 +2585,9 @@ do
 		end
 	end
 	
-	--weapons, ammo, clip
-	do
-		--ammo
-		do
+	do --weapons, ammo, clip
+		
+		do --ammo
 			__e2setcost(4)
 			e2function number entity:gamePlayerGiveAmmo(string ammo_type, amount)
 				local is_participating = game_evaluator_player_only(self, this)
@@ -2562,8 +2614,7 @@ do
 			end
 		end
 		
-		--clip
-		do
+		do --clip
 			__e2setcost(10)
 			e2function number gamePlayerSetClip1(string weapon_class, amount)
 				local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
@@ -2669,8 +2720,7 @@ do
 			end
 		end
 		
-		--weapons
-		do
+		do --weapons
 			__e2setcost(25)
 			e2function array gamePlayerGiveWeapon(string weapon_class)
 				local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
@@ -2823,9 +2873,9 @@ end
 --callbacks
 registerCallback("construct",
 	function(self)
-		local master_index = self.player:EntIndex()
+		--[[local master_index = self.player:EntIndex()
 		
-		if master_index and not game_settings[master_index] then construct_game_settings(master_index) end
+		if master_index and not game_settings[master_index] then construct_game_settings(master_index) end]]
 	end
 )
 
@@ -3023,19 +3073,61 @@ end)
 --PLEASE SOMEONE WORK ON GMOD'S PHYSICS
 --GARRY? RUBAT? ANYONE? PLEEEEEAAASE
 hook.Add("ShouldCollide", "wire_game_core", function(ent_1, ent_2)
+	local ply = ent_1:IsPlayer() and game_masters[ent_1:EntIndex()] and ent_1 or ent_2:IsPlayer() and game_masters[ent_2:EntIndex()] and ent_2 or false
+	
+	if ply then
+		local obstacle = ply == ent_1 and ent_2 or ent_1
+		
+		return should_collide(ply, obstacle, ply:EntIndex(), obstacle:EntIndex())
+	end
+	
+	--[[
 	if ent_1:IsPlayer() and ent_2:IsPlayer() then
 		local ent_1_master = game_masters[ent_1:EntIndex()]
 		local ent_2_master = game_masters[ent_2:EntIndex()]
 		
-		if ent_1_master and ent_1_master == ent_2_master then return game_settings[ent_1_master].player_collision end
+		if ent_1_master and ent_1_master == ent_2_master then return game_settings[ent_1_master].ply_collide end
 		if ent_1_master ~= ent_2_master then return false end
-	end
+	end --]]
 	
 	return true
 end)
 
 hook.Add("Think", "wire_game_core", function()
 	local cur_time = CurTime()
+	
+	if queue_game_collidables_check then
+		local passed_master_index = false
+		
+		net.Start("wire_game_core_collidables")
+		
+		for master_index, collidables in pairs(queue_game_collidables) do
+			local passed_ent_index = false
+			
+			--say: there is another master that has entries to network
+			if passed_master_index then net.WriteBool(true)
+			else passed_master_index = true end
+			
+			--wasting two possiblities >:[ (0 and 256)
+			net.WriteUInt(master_index, 8)
+			
+			for ent_index, collidable in pairs(collidables) do
+				--say: there is another entry
+				if passed_ent_index then net.WriteBool(true)
+				else passed_ent_index = true end
+				
+				net.WriteUInt(ent_index, 13)
+				net.WriteBool(collidable)
+			end
+			
+			net.WriteBool(false) --say: there are no more entries
+		end
+		
+		net.Broadcast()
+		
+		queue_game_collidables = {}
+		queue_game_collidables_check = false
+	end
 	
 	if queue_game_masters_check then
 		local send = {}
