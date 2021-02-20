@@ -902,8 +902,9 @@ end)
 fl_Player_SetAmmo = create_function_header(ply_meta, "SetAmmo", function(ply, ply_index, count, ammo_type) ply_settings[ply_index].ammo[isstring(ammo_type) and game.GetAmmoID(ammo_type) or ammo_type] = count end)
 fl_Player_StripWeapon = create_function_header(ply_meta, "StripWeapon", function(ply, ply_index, weapon_class) ply_settings[ply_index].arsenal[weapon_class] = nil end)
 
---we can't just use a hook, because it will still allow the original method provided by the sandbox gamemode
+--manual detours
 function GAMEMODE:PlayerDeathThink(ply, ...)
+	--we can't just use a hook, because it will still allow the original method provided by the sandbox gamemode
 	local master_index = game_masters[ply:EntIndex()]
 	
 	if master_index then game_respawn_functions[game_settings[master_index].defaults.respawn_mode](ply, master_index)
@@ -936,9 +937,9 @@ function ply_meta:GiveAmmo(amount, ammo_type, hide_popup, ...)
 	return 0
 end
 
---probably need to make this work with other things that set it
---I'm thinking of giving it its own setting in ply_settings
 function ply_meta:SetViewEntity(view_entity, ...)
+	--probably need to make this work with other things that set it
+	--I'm thinking of giving it its own setting in ply_settings
 	local ply_index = self:EntIndex()
 	
 	if game_masters[ply_index] then
@@ -950,6 +951,9 @@ function ply_meta:SetViewEntity(view_entity, ...)
 		return false
 	else fl_Player_SetViewEntity(self, view_entity, ...) end
 end
+
+--global functions
+--function WireGameCoreGetMasterIndex(ply_index) return game_masters[ply_index] end
 
 --e2functions
 do --camera e2functions
@@ -1250,7 +1254,6 @@ do --camera e2functions
 	end
 end
 
---SwitchToDefaultWeapon
 do --game management
 	do --collidables
 		--we might want to make this function part of the player functions
@@ -3505,49 +3508,44 @@ do
 		end)
 	end
 	
-	--ulx and its dumb enhanced respawn
-	local function detour_spawn()
-		hook.Add("PlayerSpawn", "UTeamSpawnAuth", function(ply)
-			--prevent the stupid spawn event if they are in a game
-			if not game_masters[ply:EntIndex()] then ulib_teams(ply) end
-		end, HOOK_MONITOR_HIGH)
-	end
-	
-	if not ULXUTeamSpawnAuthHook_GameCore then
-		hook.Add("InitPostEntity", "wire_game_core", function()
-			local hooks = hook.GetTable()
-			
-			if not ulib_teams then
-				ulib_teams = hooks.PlayerSpawn.UTeamSpawnAuth
-				ULXUTeamSpawnAuthHook_GameCore = ulib_teams
+	do --ulx and its dumb enhanced respawn
+		local function detour_spawn()
+			hook.Add("PlayerSpawn", "UTeamSpawnAuth", function(ply)
+				--prevent the stupid spawn event if they are in a game
+				if not game_masters[ply:EntIndex()] then ulib_teams(ply) end
+			end, HOOK_MONITOR_HIGH)
+		end
+		
+		if not ULXUTeamSpawnAuthHook_GameCore then
+			hook.Add("InitPostEntity", "wire_game_core_ulx", function()
+				local hooks = hook.GetTable()
 				
-				if not ulib_teams then goto done end
-			end
-			
-			detour_spawn()
-			
-			::done::
-			
-			hook.Remove("InitPostEntity", "wire_game_core")
-		end)
-	else detour_spawn() end
-	
-	--hook for ulx commands
-	--hook.Call("ULibCommandCalled", _, ply, data.__cmd, argv )
-	
-	
-	hook.Add("PlayerCanPickupWeapon", "TIIPURMPlayerCanPickupWeapon", TIIP.URM.PlayerCanPickupWeapon, -1)
+				if not ulib_teams then
+					ulib_teams = hooks.PlayerSpawn.UTeamSpawnAuth
+					ULXUTeamSpawnAuthHook_GameCore = ulib_teams
+					
+					if not ulib_teams then goto done end
+				end
+				
+				detour_spawn()
+				
+				::done::
+				
+				hook.Remove("InitPostEntity", "wire_game_core_ulx")
+			end)
+		else detour_spawn() end
+	end
 	
 	do --urm, for autobox mainly
 		if TIIP and TIIP.URM and TIIP.URM.PlayerCanPickupWeapon then
-			hook_function = TIIP.URM.PlayerCanPickupWeapon
+			fl_TIIP_URM_PlayerCanPickupWeapon = TIIP.URM.PlayerCanPickupWeapon
 			
 			hook.Add("PlayerCanPickupWeapon", "TIIPURMPlayerCanPickupWeapon", function(ply, ...)
 				local master_index = game_masters[ply:EntIndex()]
 				
-				if master_index then return hook_function(Entity(master_index), ...)
-				else return hook_function(ply, ...) end
-			end)
+				if master_index then return fl_TIIP_URM_PlayerCanPickupWeapon(Entity(master_index), ...)
+				else return fl_TIIP_URM_PlayerCanPickupWeapon(ply, ...) end
+			end, -1)
 		end
 	end
 end
