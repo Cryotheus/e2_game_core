@@ -28,6 +28,7 @@ local function_descriptions = {
 	["gameLeavePlayer"] =							5,
 	["gameOpen"] =									1,
 	["gamePlayerApplyForce"] =						5,
+	["gamePlayerCollidableSet"] =					-7,
 	["gamePlayerCount"] =							3,
 	["gamePlayerCount(e:)"] =						0,
 	["gamePlayerGiveAmmo(e:sn)"] =					5,
@@ -141,7 +142,7 @@ for name, data in pairs(function_descriptions) do
 		wip = wip_prefix and translate("wire_game_core.e2helper.wip.prefixed", {
 			text = translate("wire_game_core.e2_wip." .. parsed),
 			wip = wip_tag
-		}) or wip_tag and wip or nil
+		}) or wip and wip_tag or nil
 	})
 end
 

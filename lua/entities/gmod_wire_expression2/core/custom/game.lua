@@ -127,7 +127,7 @@ local game_constants = { --in e2, these are all prefixed with _GAME, meaning REQ
 	RESPAWNMODE_INSTANT =	1, --instantly respawn the player
 	RESPAWNMODE_DELAYED =	2, --delay their respawn for a bit
 	RESPAWNMODE_NEVER =		3, --don't, lol
-	RESPAWNMODE_SPECTATOR =	4, --imediately put them into spectator
+	--RESPAWNMODE_SPECTATOR =	4, --imediately put them into spectator
 	
 	RESPONSE_ACCEPT =		 1, --the player accepted the request, and has become part of your game
 	RESPONSE_ACCEPT_FORCED = 2, --the player has become part of your game without consent
@@ -212,6 +212,7 @@ local game_synced_settings = { --contains the settings that are sent to clients;
 local map_max_bounds = 32768 + 512 --512 as a buffer
 local map_min_bounds = -map_max_bounds
 local tag_count = #tags
+local weapons_passing = false
 
 ----globals
 	--access to original, non detoured globals functions
@@ -394,7 +395,6 @@ local function construct_game_settings(master_index)
 	local master = Entity(master_index)
 	local master_name = master:Nick()
 	
-	game_collidables[master_index] = {}
 	game_settings[master_index] = table.Copy(game_default_settings)
 	game_settings[master_index].title = master_name .. (master_name[string.len(master_name)] == "s" and "' Game" or "'s Game")
 end
@@ -414,7 +414,15 @@ local function create_function_detour(function_table, function_name, field, forc
 			function_table[function_name] = function(self, ...)
 				local ply_index = self:EntIndex()
 				
-				if game_masters[ply_index] then ply_settings[ply_index][field] = force_value
+				if game_masters[ply_index] then
+					ply_settings[ply_index][field] = force_value
+					
+					--[[ debug for this weird "MOVETYPE_FOLLOW" error console spam
+					if function_name == "SetMoveType" then
+						print("We blocked the move type change to ", interest)
+						print("Source (force_value included):")
+						debug.Trace()
+					end --]]
 				else existing_function(self, ...) end
 			end
 		else
@@ -422,7 +430,15 @@ local function create_function_detour(function_table, function_name, field, forc
 			function_table[function_name] = function(self, interest, ...)
 				local ply_index = self:EntIndex()
 				
-				if game_masters[ply_index] then ply_settings[ply_index][field] = interest
+				if game_masters[ply_index] then
+					ply_settings[ply_index][field] = interest
+					
+					--[[ debug for this weird "MOVETYPE_FOLLOW" error console spam
+					if function_name == "SetMoveType" then
+						print("We blocked the move type change to ", interest)
+						print("Source:")
+						debug.Trace()
+					end --]]
 				else existing_function(self, interest, ...) end
 			end
 		end
@@ -707,7 +723,20 @@ local function game_set_closed(master_index, forced)
 	camera_remove_all(master_index)
 	game_remove_all(master_index, forced)
 	
-	game_collidables[master_index] = nil
+	if game_collidables[master_index] then
+		for entity_index in pairs(game_collidables[master_index]) do
+			local entity = Entity(entity_index)
+			
+			if IsValid(entity) then
+				entity:CollisionRulesChanged()
+				entity:RemoveCallOnRemove("wire_game_core_collidables")
+			end
+		end
+		
+		game_collidables[master_index] = nil
+	end
+	
+	--game_collidables[master_index] = nil
 	game_constructor[game_constructor[master_index]] = nil
 	game_constructor[master_index] = nil
 	game_settings[master_index] = nil
@@ -724,6 +753,7 @@ local function game_write_message(message_table, new_line, notification_duration
 	if notify then net.WriteFloat(notification_duration) end
 end
 
+local function get_context(master_index) return game_constructor[master_index] and Entity(game_constructor[master_index]).context or nil end
 local function get_owner(context, entity) return E2Lib.getOwner(context, entity) end
 
 local function give_weapon(ply, master, weapon_class, supress_ammo)
@@ -737,7 +767,11 @@ local function give_weapon(ply, master, weapon_class, supress_ammo)
 	
 	local swep_class = swep.ClassName
 	
-	if not ply:HasWeapon(swep_class) then return ply:Give(swep_class, supress_ammo) end
+	if not ply:HasWeapon(swep_class) then
+		weapons_passing = true
+		
+		return ply:Give(swep_class, supress_ammo)
+	end
 	
 	return NULL
 end
@@ -797,7 +831,7 @@ local function should_collide(ply, obstacle, ply_index, obstacle_index)
 		return false
 	end
 	
-	if game_collidables[obstacle_index] or obstacle:IsWorld() then return true end
+	if game_collidables[master_index] and game_collidables[master_index][obstacle_index] or obstacle:IsWorld() then return true end
 	
 	--do we HAVE to return a value? was mitch lying?
 	return false
@@ -1182,8 +1216,9 @@ end
 ----game management
 do
 	do --collidables
+		--we might want to make this function part of the player functions
 		__e2setcost(6)
-		e2function number entity:gameCollidable(number state)
+		e2function number entity:gamePlayerCollidableSet(number state)
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 			
 			if is_constructor and IsValid(this) then
@@ -1198,13 +1233,23 @@ do
 						add_collidable_sync_request(master_index, this_index, state)
 						
 						--might need to be done on the entity with custom collisions...
+						if state then
+							this:CallOnRemove("wire_game_core_collidables", function(entity)
+								add_collidable_sync_request(master_index, this_index)
+								entity:CollisionRulesChanged()
+								
+								if game_collidables[master_index] then game_collidables[master_index][this_index] = nil end
+								if table.IsEmpty(game_collidables[master_index]) then game_collidables[master_index] = nil end
+							end)
+						else this:RemoveCallOnRemove("wire_game_core_collidables") end
+						
 						this:CollisionRulesChanged()
 						
 						if game_collidables[master_index] then
-							game_collidables[master_index][ent_index] = state
+							game_collidables[master_index][this_index] = state
 							
 							if table.IsEmpty(game_collidables[master_index]) then game_collidables[master_index] = nil end
-						elseif state then game_collidables[master_index] = {[ent_index] = state} end
+						elseif state then game_collidables[master_index] = {[this_index] = state} end
 						
 						return 1
 					end
@@ -2586,7 +2631,6 @@ do
 	end
 	
 	do --weapons, ammo, clip
-		
 		do --ammo
 			__e2setcost(4)
 			e2function number entity:gamePlayerGiveAmmo(string ammo_type, amount)
@@ -2945,27 +2989,8 @@ hook.Add("CanPlayerSuicide", "wire_game_core", function(ply)
 end)
 
 hook.Add("EntityTakeDamage", "wire_game_core", function(victim, damage_info)
-	local attacker = damage_info:GetAttacker()
-	local attacker_index = attacker:EntIndex()
-	local attacker_valid = IsValid(attacker)
-	local victim_index = victim:EntIndex()
-	local master_index = game_masters[victim_index]
-	
-	--keep players safe from outside sources
-	if attacker_valid and attacker:IsPlayer() then
-		local attacker_master_index = game_masters[attacker_index]
-		
-		if victim:IsPlayer() and master_index ~= attacker_master_index then print("no minge") return true end
-		
-		--more checks here, like let them attack the game master's props
-	end
-	
-	if master_index then
-		local settings = game_settings[master_index]
-		
-		if game_damage_taken[victim_index] then damage_info:ScaleDamage(game_damage_taken[victim_index]) end
-		if attacker_valid and game_damage_dealt[attacker_index] then damage_info:ScaleDamage(game_damage_dealt[attacker_index]) end
-	end
+	--rewrite
+	--lots of it
 end)
 
 hook.Add("GetFallDamage", "wire_game_core", function(ply)
@@ -2978,7 +3003,24 @@ end)
 hook.Add("GravGunPickupAllowed", "wire_game_core", player_can_interact)
 hook.Add("PhysgunPickup", "wire_game_core", player_can_interact)
 hook.Add("PlayerCanPickupItem", "wire_game_core", player_can_interact)
-hook.Add("PlayerCanPickupWeapon", "wire_game_core", player_can_interact)
+
+hook.Add("PlayerCanPickupWeapon", "wire_game_core", function(ply, weapon)
+	local master_index = game_masters[ply:EntIndex()]
+	
+	if master_index then
+		if IsValid(weapon) then
+			if weapons_passing then
+				weapons_passing = false
+				
+				return true
+			end
+			
+			if owned_by_master(get_context(master_index), weapon) then return true end
+		end
+		
+		return false
+	end
+end)
 
 hook.Add("PlayerDeath", "wire_game_core", function(victim, inflictor, attacker)
 	local victim_index = victim:EntIndex()
@@ -3050,11 +3092,12 @@ hook.Add("PlayerSpawn", "wire_game_core", function(ply)
 end)
 
 --more here please
-hook.Add("PlayerTraceAttack", "wire_game_core", function(victim, damage_info, direction, trace)
+--reeeeewriiiiite
+--[[hook.Add("PlayerTraceAttack", "wire_game_core", function(victim, damage_info, direction, trace)
 	local attacker = damage_info:GetAttacker()
 	
 	if IsValid(attacker) and attacker:IsPlayer() and game_masters[attacker:EntIndex()] ~= game_masters[victim:EntIndex()] then return true end
-end)
+end)]]
 
 hook.Add("PlayerGiveSWEP", "wire_game_core", active_game_inv)
 hook.Add("PlayerSpawnNPC", "wire_game_core", active_game_inv)
@@ -3063,6 +3106,7 @@ hook.Add("PlayerSpawnSENT", "wire_game_core", active_game_inv)
 hook.Add("PlayerSpawnSWEP", "wire_game_core", active_game_inv)
 hook.Add("PlayerSpawnVehicle", "wire_game_core", active_game_inv)
 
+--fuck pac, it's so messy
 hook.Add("PrePACConfigApply", "wire_game_core", function(ply, data)
 	local ply_index = ply:EntIndex()
 	
@@ -3080,17 +3124,6 @@ hook.Add("ShouldCollide", "wire_game_core", function(ent_1, ent_2)
 		
 		return should_collide(ply, obstacle, ply:EntIndex(), obstacle:EntIndex())
 	end
-	
-	--[[
-	if ent_1:IsPlayer() and ent_2:IsPlayer() then
-		local ent_1_master = game_masters[ent_1:EntIndex()]
-		local ent_2_master = game_masters[ent_2:EntIndex()]
-		
-		if ent_1_master and ent_1_master == ent_2_master then return game_settings[ent_1_master].ply_collide end
-		if ent_1_master ~= ent_2_master then return false end
-	end --]]
-	
-	return true
 end)
 
 hook.Add("Think", "wire_game_core", function()
@@ -3253,6 +3286,16 @@ hook.Add("Think", "wire_game_core", function()
 		
 		queue_game_sync_full = {}
 		queue_game_sync_full_check = false
+	end
+	
+	--special cases
+	if weapons_passing then
+		--this means the weapon was given but the appropriate hook was not, therefore weapons_passing stayed true allowing the next weapon to be picked up even if it wasn't intended
+		print("\nVVV  PLEASE REPORT THIS  VVV\n[E2 Game Core] Something interesting happened...\nThis isn't a bug but it shouldn't happen anyways, so don't freak out. If you want these traces to disappear, report them so I can patch it.")
+		debug.Trace()
+		print("\n^^^  PLEASE REPORT THIS  ^^^\n")
+		
+		weapons_passing = false
 	end
 	
 	--down below are my recreations of the timer library!

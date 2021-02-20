@@ -1001,8 +1001,20 @@ local function request_full_sync()
 	net.SendToServer()
 end
 
-local function should_collide(ply, obstacle)
+local function should_collide(ply, obstacle, ply_index, obstacle_index)
+	local master_index = game_masters[ply_index]
 	
+	--players in same game have their collisions determined by game settings
+	--other players are not collided with
+	if obstacle:IsPlayer() then
+		if game_masters[obstacle_index] == master_index then return game_settings[master_index].ply_collide end
+		
+		return false
+	end
+	
+	if game_collidables[master_index] and game_collidables[master_index][obstacle_index] or obstacle:IsWorld() then return true end
+	
+	return false
 end
 
 local function update_game_bar()
@@ -1017,6 +1029,9 @@ calc_vars()
 concommand.Add("wire_game_core_debug", function()
 	print("game_settings")
 	PrintTable(game_settings, 1)
+	
+	print("game_collidables")
+	PrintTable(game_collidables, 1)
 end, nil, "Debug info for game core.")
 
 --cvars
@@ -1324,18 +1339,13 @@ hook.Add("PopulateToolMenu", "wire_game_core", function() spawnmenu.AddToolMenuO
 --hook.Add("SpawnMenuOpen", "wire_game_core", function() if game_master_index then return false end end)
 
 hook.Add("ShouldCollide", "wire_game_core", function(ent_1, ent_2)
+	local ply = ent_1:IsPlayer() and game_masters[ent_1:EntIndex()] and ent_1 or ent_2:IsPlayer() and game_masters[ent_2:EntIndex()] and ent_2 or false
 	
-	
-	--[[
-	if ent_1:IsPlayer() and ent_2:IsPlayer() then
-		local ent_1_master = game_masters[ent_1:EntIndex()]
-		local ent_2_master = game_masters[ent_2:EntIndex()]
+	if ply then
+		local obstacle = ply == ent_1 and ent_2 or ent_1
 		
-		if ent_1_master and ent_1_master == ent_2_master then return game_settings[ent_1_master].ply_collide end
-		if ent_1_master ~= ent_2_master then return false end
-	end --]]
-	
-	return true
+		return should_collide(ply, obstacle, ply:EntIndex(), obstacle:EntIndex())
+	end
 end)
 
 --net
@@ -1366,6 +1376,7 @@ end)
 
 net.Receive("wire_game_core_collidables", function()
 	--todo: more networked tables like this
+	--though, we need to make it so the collidables get wiped when a game goes inactive
 	repeat
 		local master_index = net.ReadUInt(8)
 		
@@ -1378,7 +1389,7 @@ net.Receive("wire_game_core_collidables", function()
 		until not net.ReadBool()
 		
 		--discard the bitch
-		if table.IsEmpty(game_collidables[master_index]) then game_collidables[master_index] = nil end
+		if not game_collidables[master_index] or table.IsEmpty(game_collidables[master_index]) then game_collidables[master_index] = nil end
 	until not net.ReadBool()
 end)
 
@@ -1514,6 +1525,7 @@ net.Receive("wire_game_core_sync", function()
 				game_entry_container:RemoveEntry(master_index)
 				
 				--don't need this anymore looool
+				game_collidables[master_index] = nil
 				game_entry_container.GameEntryHeaders[master_index] = nil
 				game_settings[master_index] = nil
 			else
@@ -1532,7 +1544,9 @@ net.Receive("wire_game_core_sync", function()
 	else
 		for master_index, settings in pairs(received_settings) do 
 			--if the settings are false instead of a table, they were removed
-			if settings == false then game_settings[master_index] = nil
+			if settings == false then
+				game_collidables[master_index] = nil
+				game_settings[master_index] = nil
 			else game_settings[master_index] = table.Merge(game_settings[master_index] or {}, settings) end
 		end
 	end
