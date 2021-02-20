@@ -3534,4 +3534,20 @@ do
 	
 	--hook for ulx commands
 	--hook.Call("ULibCommandCalled", _, ply, data.__cmd, argv )
+	
+	
+	hook.Add("PlayerCanPickupWeapon", "TIIPURMPlayerCanPickupWeapon", TIIP.URM.PlayerCanPickupWeapon, -1)
+	
+	do --urm, for autobox mainly
+		if TIIP and TIIP.URM and TIIP.URM.PlayerCanPickupWeapon then
+			hook_function = TIIP.URM.PlayerCanPickupWeapon
+			
+			hook.Add("PlayerCanPickupWeapon", "TIIPURMPlayerCanPickupWeapon", function(ply, ...)
+				local master_index = game_masters[ply:EntIndex()]
+				
+				if master_index then return hook_function(Entity(master_index), ...)
+				else return hook_function(ply, ...) end
+			end)
+		end
+	end
 end
