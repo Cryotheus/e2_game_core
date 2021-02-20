@@ -146,5 +146,5 @@ for name, data in pairs(function_descriptions) do
 	})
 end
 
---clean up!
+--clean up! probably don't need to do this, lua's gc is smart
 function_descriptions = nil

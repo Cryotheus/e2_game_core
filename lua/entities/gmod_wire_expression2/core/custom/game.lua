@@ -45,6 +45,7 @@ local tags = include("wire_game_core/includes/tags.lua") --y					k: sequential i
 ----convars
 	local convar_limit_settings = {FCVAR_ARCHIVE, FCVAR_NOTIFY}
 	
+	local gmod_maxammo = GetConVar("gmod_maxammo")
 	local wire_game_core_description_delay = CreateConVar("wire_game_core_description_delay", "5", convar_limit_settings, "How long to wait before allowing the player to update their game description.", 1, 60)
 	local wire_game_core_max_armor = CreateConVar("wire_game_core_max_armor", "32768", convar_limit_settings, "The maximum amount of armor a player may be given.", 100, 32768)--game_max_description_length = wire_game_core_max_description_length:GetInt()
 	local wire_game_core_max_camera_lerp = CreateConVar("wire_game_core_max_camera_lerp", "3600", convar_limit_settings, "The longest a camera lerp can be, in seconds.", 0, 36000)
@@ -64,6 +65,7 @@ local tags = include("wire_game_core/includes/tags.lua") --y					k: sequential i
 
 ----convars cached values, make sure to give the convar a call back!
 	local game_description_delay = wire_game_core_description_delay:GetFloat()
+	local game_max_ammo = gmod_maxammo:GetInt() ~= 0 and gmod_maxammo:GetInt() or nil
 	local game_max_armor = wire_game_core_max_armor:GetInt()
 	local game_max_camera_lerp = wire_game_core_max_camera_lerp:GetFloat()
 	local game_max_cameras = wire_game_core_max_cameras:GetInt()
@@ -87,9 +89,14 @@ local tags = include("wire_game_core/includes/tags.lua") --y					k: sequential i
 	local fl_Entity_SetMoveType
 	local fl_Entity_SetPos
 	local fl_GAMEMODE_PlayerDeathThink = GAMEMODE.PlayerDeathThinkX_GameCore or GAMEMODE.PlayerDeathThink
+	local fl_math_Clamp = math.Clamp
+	local fl_Player_Give = ply_meta.GiveX_GameCore or ply_meta.Give
+	local fl_Player_GiveAmmo = ply_meta.GiveAmmoX_GameCore or ply_meta.GiveAmmo
 	local fl_Player_GodDisable
 	local fl_Player_GodEnable
+	local fl_Player_RemoveAllAmmo
 	local fl_Player_RemoveAllItems
+	local fl_Player_SetAmmo
 	local fl_Player_SetArmor
 	local fl_Player_SetCrouchedWalkSpeed
 	local fl_Player_SetEyeAngles
@@ -101,10 +108,6 @@ local tags = include("wire_game_core/includes/tags.lua") --y					k: sequential i
 	local fl_Player_SetSlowWalkSpeed
 	local fl_Player_SetViewEntity = ply_meta.SetViewEntityX_GameCore or ply_meta.SetViewEntity
 	local fl_Player_SetWalkSpeed
-	local fl_math_Clamp = math.Clamp
-	
-	local fl_Player_RemoveAllAmmo
-	local fl_Player_SetAmmo
 	local fl_Player_StripAmmo
 	local fl_Player_StripWeapon
 	local fl_Player_StripWeapons
@@ -217,23 +220,11 @@ local weapons_passing = false
 ----globals
 	--access to original, non detoured globals functions
 	--other people x them, name space shenans should help if someone wants to make compatibility
-	entity_meta.SetGravityX_GameCore = fl_Entity_SetGravity
-	entity_meta.SetHealthX_GameCore = fl_Entity_SetHealth
-	entity_meta.SetMaxHealthX_GameCore = fl_Entity_SetMaxHealth
-	entity_meta.SetMoveTypeX_GameCore = fl_Entity_SetMoveType
-	entity_meta.SetPosX_GameCore = fl_Entity_SetPos
+	--this is done automatically by the detour macro functions
 	GAMEMODE.PlayerDeathThinkX_GameCore = fl_GAMEMODE_PlayerDeathThink
-	ply_meta.GodDisableX_GameCore = fl_Player_GodDisable
-	ply_meta.GodEnableX_GameCore = fl_Player_GodEnable
-	ply_meta.SetArmorX_GameCore = fl_Player_SetArmor
-	ply_meta.SetCrouchedWalkSpeedX_GameCore = fl_Player_SetCrouchedWalkSpeed
-	ply_meta.SetFOVX_GameCore = fl_Player_SetFOV
-	ply_meta.SetJumpPowerX_GameCore = fl_Player_SetJumpPower
-	ply_meta.SetLadderClimbSpeedX_GameCore = fl_Player_SetLadderClimbSpeed
-	ply_meta.SetRunSpeedX_GameCore = fl_Player_SetRunSpeed
-	ply_meta.SetSlowWalkSpeedX_GameCore = fl_Player_SetSlowWalkSpeed
+	ply_meta.Give = fl_Player_Give
+	ply_meta.GiveAmmo = fl_Player_GiveAmmo
 	ply_meta.SetViewEntityX_GameCore = fl_Player_SetViewEntity
-	ply_meta.SetWalkSpeedX_GameCore = fl_Player_SetWalkSpeed
 
 --local pre functions
 local function ian(num) return num == num end
@@ -515,10 +506,12 @@ local function game_add(ply, master_index)
 		angle = ply:EyeAngles(),
 		armor = ply:Armor(),
 		arsenal = {},
+		avoid_players = ply:GetAvoidPlayers(),
 		crouch_speed = ply:GetCrouchedWalkSpeed(),
 		--crouched = ply:Crouching(), --I don't know how to make them crouched
 		deaths = ply:Deaths(),
 		flashlight = ply:FlashlightIsOn(),
+		fov = ply:GetFOV(),
 		frags = ply:Frags(),
 		god = ply:HasGodMode(),
 		gravity = ply:GetGravity(),
@@ -541,11 +534,13 @@ local function game_add(ply, master_index)
 		ply_settings[ply_index].arsenal[weapon_class] = {weapon:Clip1(), weapon:Clip2()}
 	end
 	
+	ply:SetAvoidPlayers(false)
 	ply:SetDeaths(0)
 	ply:SetFrags(0)
 	
 	fl_Entity_SetMoveType(ply, MOVETYPE_WALK)
 	
+	--if there is a pac worn, clear it
 	if pac_present then ply:ConCommand("pac_clear_parts") end
 	if ply:InVehicle() then ply:ExitVehicle() end
 	
@@ -559,10 +554,10 @@ local function game_add(ply, master_index)
 	net.WriteUInt(master_index, 8)
 	
 	--broken, supposed to make them switch back to their original weapon
-	if ply_weapon_class then
+	--[[if ply_weapon_class then
 		net.WriteBool(true)
 		net.WriteString(ply_weapon_class)
-	else net.WriteBool(false) end
+	else net.WriteBool(false) end]]
 	
 	net.Send(ply)
 	
@@ -668,7 +663,7 @@ local function game_remove(ply, enum)
 		weapon:SetClip2(clips[2])
 	end
 	
-	for ammo_type, ammo_count in pairs(settings.ammo) do ply:GiveAmmo(ammo_count, ammo_type, true) end
+	for ammo_type, ammo_count in pairs(settings.ammo) do fl_Player_GiveAmmo(ply, ammo_count, ammo_type, true) end
 	
 	--reset the player's view
 	if ply_settings[ply_index] then
@@ -678,12 +673,14 @@ local function game_remove(ply, enum)
 	end
 	
 	ply:ExitVehicle()
+	ply:SetAvoidPlayers(settings.avoid_players)
 	ply:SetDeaths(settings.deaths)
 	ply:SetEyeAngles(settings.angle)
 	ply:SetFrags(settings.frags)
 	ply:SetSuppressPickupNotices(false)
 	ply:SetVelocity(settings.velocity)
 	
+	fl_Player_SetFOV(ply, settings.fov)
 	fl_Entity_SetGravity(ply, settings.gravity)
 	fl_Entity_SetHealth(ply, settings.health)
 	fl_Player_SetMaxArmor(ply, settings.max_armor)
@@ -743,14 +740,20 @@ local function game_set_closed(master_index, forced)
 end
 
 local function game_write_message(message_table, new_line, notification_duration)
-	local notify = notification_duration > 0 and true or false
-	
 	net.Start("wire_game_core_message")
-	net.WriteTable(message_table)
-	net.WriteBool(new_line)
-	net.WriteBool(notify)
 	
-	if notify then net.WriteFloat(notification_duration) end
+	if message_table then 
+		local notify = notification_duration > 0 and true or false
+		
+		net.WriteBool(true)
+		net.WriteTable(message_table)
+		net.WriteBool(new_line)
+		
+		if notify then
+			net.WriteBool(true)
+			net.WriteFloat(notification_duration)
+		else net.WriteBool(false) end
+	else net.WriteBool(false) end
 end
 
 local function get_context(master_index) return game_constructor[master_index] and Entity(game_constructor[master_index]).context or nil end
@@ -770,7 +773,7 @@ local function give_weapon(ply, master, weapon_class, supress_ammo)
 	if not ply:HasWeapon(swep_class) then
 		weapons_passing = true
 		
-		return ply:Give(swep_class, supress_ammo)
+		return fl_Player_Give(ply, swep_class, supress_ammo)
 	end
 	
 	return NULL
@@ -837,6 +840,27 @@ local function should_collide(ply, obstacle, ply_index, obstacle_index)
 	return false
 end
 
+local function shouldnt_damage(ply, other, ply_index, other_index)
+	--ply is the game's player, it can be the attacker or victim
+	if not IsValid(other) then return true end
+	if other == ply then return false end
+	
+	local master_index = game_masters[ply_index]
+	
+	if other:IsPlayer() then
+		--possible team and friendly fire check
+		if game_masters[other:EntIndex()] ~= master_index then return true end
+		
+		return false
+	end
+	
+	if game_collidables[master_index] and game_collidables[master_index][other_index] then return false end
+	if owned_by_master(get_context(master_index), other) then return false end
+	if other:IsWorld() then return true end --special case here, like a gameEnableWorldDamage e2 function
+	
+	return true
+end
+
 --post function setup
 E2Lib.RegisterExtension("game", false,
 	"Allows players to have more control over other players, as long as the other player consents. Players will be restored to their original state (including position), upon leaving a game.",
@@ -878,23 +902,38 @@ end)
 fl_Player_SetAmmo = create_function_header(ply_meta, "SetAmmo", function(ply, ply_index, count, ammo_type) ply_settings[ply_index].ammo[isstring(ammo_type) and game.GetAmmoID(ammo_type) or ammo_type] = count end)
 fl_Player_StripWeapon = create_function_header(ply_meta, "StripWeapon", function(ply, ply_index, weapon_class) ply_settings[ply_index].arsenal[weapon_class] = nil end)
 
---global functions --SetPos
---[[
-		ammo = ply:GetAmmo(),
-		angle = ply:EyeAngles(),
-		arsenal = {},
-		deaths = ply:Deaths(),
-		flashlight = ply:FlashlightIsOn(),
-		frags = ply:Frags(),
-		velocity = ply:GetVelocity(),
-]]
-
 --we can't just use a hook, because it will still allow the original method provided by the sandbox gamemode
 function GAMEMODE:PlayerDeathThink(ply, ...)
 	local master_index = game_masters[ply:EntIndex()]
 	
 	if master_index then game_respawn_functions[game_settings[master_index].defaults.respawn_mode](ply, master_index)
 	else fl_GAMEMODE_PlayerDeathThink(GAMEMODE, ply, ...) end
+end
+
+function ply_meta:Give(class, no_ammo, ...)
+	--we need to make this give ammo in the clip if no_ammo is false/nil
+	local ply_index = self:EntIndex()
+	
+	if not weapons_passing and game_masters[ply_index] then
+		if self:HasWeapon(class) then return NULL end
+		
+		ply_settings[ply_index].arsenal[class] = {0, 0}
+	else return fl_Player_Give(self, class, no_ammo, ...) end
+	
+	return NULL
+end
+
+function ply_meta:GiveAmmo(amount, ammo_type, hide_popup, ...)
+	local ply_index = self:EntIndex()
+	
+	if game_masters[ply_index] then
+		local converted_type = isstring(ammo_type) and game.GetAmmoID(ammo_type) or ammo_type
+		local existing_ammo = ply_settings[ply_index].ammo[converted_type]
+		
+		ply_settings[ply_index].ammo[converted_type] = game_max_ammo and math.min(amount + existing_ammo, game_max_ammo) or amount + existing_ammo
+	else return fl_Player_GiveAmmo(self, amount, ammo_type, hide_popup, ...) end
+	
+	return 0
 end
 
 --probably need to make this work with other things that set it
@@ -913,8 +952,7 @@ function ply_meta:SetViewEntity(view_entity, ...)
 end
 
 --e2functions
-----camera e2functions
-do
+do --camera e2functions
 	__e2setcost(8)
 	e2function number gameCameraAng(camera_index, angle angle)
 		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
@@ -1213,8 +1251,7 @@ do
 end
 
 --SwitchToDefaultWeapon
-----game management
-do
+do --game management
 	do --collidables
 		--we might want to make this function part of the player functions
 		__e2setcost(6)
@@ -1591,8 +1628,7 @@ do
 	end
 end
 
-----player defaults
-do
+do --player defaults
 	__e2setcost(2)
 	e2function number gameSetDefaultArmor(armor)
 		local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
@@ -1787,8 +1823,7 @@ do
 	end
 end
 
-----player control
-do
+do --game management
 	do --camera
 		__e2setcost(6)
 		e2function number entity:gamePlayerSetCamera()
@@ -2174,7 +2209,7 @@ do
 						game_message_resets[ply_index] = CurTime() + 1
 					end
 					
-					net.Start("wire_game_core_message")
+					game_write_message()
 					net.Send(this)
 				end
 			end
@@ -2287,7 +2322,7 @@ do
 				end)
 				
 				if send then
-					net.Start("wire_game_core_message")
+					game_write_message()
 					net.Send(filter)
 					
 					return 1
@@ -2637,7 +2672,7 @@ do
 				local is_participating = game_evaluator_player_only(self, this)
 				
 				if is_participating then
-					this:GiveAmmo(amount, ammo_type, true)
+					fl_Player_GiveAmmo(this, amount, ammo_type)
 					
 					return 1
 				end
@@ -2649,7 +2684,7 @@ do
 				local is_participating = game_evaluator_player_only(self, this)
 				
 				if is_participating then
-					this:GiveAmmo(amount, ammo_type, show_pop_up == 0)
+					fl_Player_GiveAmmo(this, amount, ammo_type, show_pop_up == 0)
 					
 					return 1
 				end
@@ -2825,10 +2860,8 @@ do
 	end
 end
 
-----run functions
-do
-	----runOnGame*(activate)
-	do
+do --run functions
+	do --runOnGame*(activate)
 		__e2setcost(1)
 		e2function void runOnGameDeath(activate)
 			if activate ~= 0 then run_game_deaths[self.entity] = true
@@ -2856,8 +2889,7 @@ do
 		end
 	end
 	
-	----game*Clk()
-	do
+	do --game*Clk()
 		__e2setcost(3)
 		e2function entity gameDeathClk()
 			local ply = self.data.game_death_run
@@ -2885,8 +2917,7 @@ do
 		end
 	end
 	
-	----game**()
-	do
+	do --game**()
 		__e2setcost(3)
 		e2function entity gameDeathAttacker()
 			local ply = self.data.game_death_run_attacker
@@ -2938,7 +2969,8 @@ registerCallback("destruct",
 	end
 )
 
---concommands
+--concommand
+--[[ debug
 concommand.Add("wire_game_core_debug_cameras", function()
 	print("Counts")
 	PrintTable(game_camera_counts, 1)
@@ -2953,10 +2985,16 @@ concommand.Add("wire_game_core_debug_settings", function()
 	PrintTable(game_masters, 1)
 	print("Game settings")
 	PrintTable(game_settings, 1)
-end, nil, "Debug for game core, shows info about cameras.")
+end, nil, "Debug for game core, shows info about cameras.") --]]
 
---cvars
---new and old value is funky sometimes, just use the get functions
+--convars
+--use the get functions so you don't have to format the input to your liking?
+cvars.AddChangeCallback("gmod_maxammo", function()
+	local max = gmod_maxammo:GetInt()
+	
+	game_max_ammo = max ~= 0 and max or nil
+end, "wire_game_core")
+
 cvars.AddChangeCallback("wire_game_core_description_delay", function() game_description_delay = wire_game_core_description_delay:GetFloat() end)
 cvars.AddChangeCallback("wire_game_core_max_armor", function() game_max_armor = wire_game_core_max_armor:GetInt() end)
 cvars.AddChangeCallback("wire_game_core_max_camera_lerp", function() game_max_camera_lerp = wire_game_core_max_camera_lerp:GetFloat() end)
@@ -2974,7 +3012,7 @@ cvars.AddChangeCallback("wire_game_core_max_speed", function() game_max_speed = 
 cvars.AddChangeCallback("wire_game_core_min_gravity", function() game_min_gravity = wire_game_core_min_gravity:GetFloat() end)
 cvars.AddChangeCallback("wire_game_core_request_delay", function() game_request_delay = wire_game_core_request_delay:GetFloat() end)
 
---hooks PhysgunPickup
+--hooks
 hook.Add("AllowPlayerPickup", "wire_game_core", player_can_interact)
 hook.Add("CanArmDupe", "wire_game_core", active_game_inv)
 hook.Add("CanDrive", "wire_game_core", active_game_inv)
@@ -2989,8 +3027,26 @@ hook.Add("CanPlayerSuicide", "wire_game_core", function(ply)
 end)
 
 hook.Add("EntityTakeDamage", "wire_game_core", function(victim, damage_info)
-	--rewrite
-	--lots of it
+	local attacker = damage_info:GetAttacker()
+	local attacker_validity = IsValid(attacker)
+	local victim_index = victim:EntIndex()
+	local victim_master_index = game_masters[victim_index]
+	
+	if victim_master_index then
+		if shouldnt_damage(victim, attacker_validity and attacker or false, victim_index, attacker_validity and attacker:EntIndex() or false) then return true end
+		
+		damage_info:ScaleDamage(game_damage_taken[victim_index] or 1)
+	end
+	
+	if attacker_validity then
+		local attacker_index = attacker:EntIndex()
+		
+		if game_masters[attacker_index] then
+			if shouldnt_damage(attacker, victim, attacker_index, victim_index) then return true end
+			
+			damage_info:ScaleDamage(game_damage_dealt[attacker_index] or 1)
+		end
+	end
 end)
 
 hook.Add("GetFallDamage", "wire_game_core", function(ply)
@@ -3091,14 +3147,6 @@ hook.Add("PlayerSpawn", "wire_game_core", function(ply)
 	end
 end)
 
---more here please
---reeeeewriiiiite
---[[hook.Add("PlayerTraceAttack", "wire_game_core", function(victim, damage_info, direction, trace)
-	local attacker = damage_info:GetAttacker()
-	
-	if IsValid(attacker) and attacker:IsPlayer() and game_masters[attacker:EntIndex()] ~= game_masters[victim:EntIndex()] then return true end
-end)]]
-
 hook.Add("PlayerGiveSWEP", "wire_game_core", active_game_inv)
 hook.Add("PlayerSpawnNPC", "wire_game_core", active_game_inv)
 hook.Add("PlayerSpawnObject", "wire_game_core", active_game_inv)
@@ -3113,9 +3161,7 @@ hook.Add("PrePACConfigApply", "wire_game_core", function(ply, data)
 	if game_masters[ply_index] then return false, "You cannot wear your outfit while in a game." end
 end)
 
---I HATE THIS
---PLEASE SOMEONE WORK ON GMOD'S PHYSICS
---GARRY? RUBAT? ANYONE? PLEEEEEAAASE
+--very gross
 hook.Add("ShouldCollide", "wire_game_core", function(ent_1, ent_2)
 	local ply = ent_1:IsPlayer() and game_masters[ent_1:EntIndex()] and ent_1 or ent_2:IsPlayer() and game_masters[ent_2:EntIndex()] and ent_2 or false
 	

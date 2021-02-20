@@ -49,7 +49,7 @@ local function construct_order(config_table, depth, path)
 	local tabs = " ]" .. string.rep("    ", depth)
 	
 	for key, value in pairs(config_table) do
-		if type(value) == "table" then
+		if istable(value) then
 			MsgC(color_print_white, tabs .. key .. ":\n")
 			
 			if depth < max_depth then construct_order(value, depth + 1, path .. key .. "/")
@@ -95,10 +95,11 @@ local function load_scripts()
 end
 
 --concommands
+--[[ debug only
 concommand.Add("wire_game_core_reload", function(ply)
 	--is it possible to run a command from client and execute the serverside command when the command is shared?
 	if not IsValid(ply) or ply:IsSuperAdmin() or LocalPlayer and ply == LocalPlayer() then load_scripts() end
-end, nil, "Reload all [E2] Game Core scripts excluding the extension scripts.")
+end, nil, "Reload all [E2] Game Core scripts excluding the extension scripts.") --]]
 
 --post function setup
 load_scripts()

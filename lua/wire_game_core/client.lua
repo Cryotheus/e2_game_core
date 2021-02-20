@@ -96,12 +96,14 @@ local open_request_gui
 	local pop_up_panel_info_y
 	local pop_up_h
 	local pop_up_w
+	local rich_text_cleared = false
 	local scr_h
 	local scr_w
 
---constants
+--constant tables
 local player_visibility_functions = {
 	nil,
+	
 	function(ply)
 		local ply_index = ply:EntIndex()
 		local master_index = game_masters[ply_index]
@@ -110,7 +112,24 @@ local player_visibility_functions = {
 			return true
 		end
 	end,
+	
 	function(ply) if ply ~= me then return true end end
+}
+
+local player_visibility_hook_functions = {
+	nil,
+	
+	function()
+		--based off of base gamemode's code
+		if not me then return end
+		
+		local ply_trace = util.GetPlayerTrace(me)
+		local trace_entity = util.TraceLine(ply_trace).Entity
+		
+		if IsValid(trace_entity) and game_masters[trace_entity:EntIndex()] ~= game_master_index then return true end
+	end,
+	
+	function() return true end
 }
 
 local player_visibility_set_functions = {
@@ -126,6 +145,7 @@ local player_visibility_set_functions = {
 			player_physgun_colors[ply_index] = nil
 		end
 	end,
+	
 	function(ply)
 		local ply_index = ply:EntIndex()
 		local master_index = game_masters[ply_index]
@@ -150,6 +170,7 @@ local player_visibility_set_functions = {
 			end
 		end
 	end,
+	
 	function(ply)
 		local ply_index = ply:EntIndex()
 		
@@ -165,11 +186,13 @@ local player_visibility_set_functions = {
 
 local tags = include("wire_game_core/includes/tags.lua")
 
---convars
-local wire_game_core_request_duration = CreateClientConVar("wire_game_core_request_duration", "30", true, false, "How long should a request last before expiring", 10, 60)
+----convars
+	--more...
+	local wire_game_core_request_duration = CreateClientConVar("wire_game_core_request_duration", "30", true, false, "How long should a request last before expiring", 10, 60)
 
---convar values
-local pop_up_duration = wire_game_core_request_duration:GetFloat()
+----convar values
+	--more...
+	local pop_up_duration = wire_game_core_request_duration:GetFloat()
 
 ----chached functions
 	local fl_cam_End2D = cam.End2D
@@ -246,7 +269,7 @@ local function adjust_player_visibility(override)
 		local player_visibility_set_function = player_visibility_set_functions[value]
 		
 		hook.Add("PrePlayerDraw", "wire_game_core", player_visibility_function)
-		hook.Add("HUDDrawTargetID", "wire_game_core", function() return true end) --todo: filter this
+		hook.Add("HUDDrawTargetID", "wire_game_core", player_visibility_hook_functions[value])
 		
 		for _, ply in pairs(player.GetAll()) do
 			if ply == me then continue end
@@ -634,7 +657,9 @@ end
 local function game_bar_message(new_line, message_table)
 	local rich_text = game_bar.rich_text
 	
-	if new_line then rich_text:AppendText("\n") end
+	--rich_text_cleared is so we know that there is not existing lines and that we can skip adding a new line
+	if new_line and not rich_text_cleared then rich_text:AppendText("\n")
+	else rich_text_cleared = false end
 	
 	for index, value in ipairs(message_table) do
 		if isstring(value) then rich_text:AppendText(value)
@@ -813,17 +838,16 @@ open_browser = function(icon, window)
 		panel_cogs:SetMouseInputEnabled(false)
 		panel_cogs:SetZPos(1)
 		
-		--TODO: cache these functions!
 		function panel_cogs:Paint(width, height)
-			render.ClearStencil()
-			render.SetStencilCompareFunction(STENCIL_NEVER)
-			render.SetStencilEnable(true)
-			render.SetStencilFailOperation(STENCIL_REPLACE)
-			render.SetStencilPassOperation(STENCIL_KEEP)
-			render.SetStencilReferenceValue(1)
-			render.SetStencilTestMask(0xFF)
-			render.SetStencilWriteMask(0xFF)
-			render.SetStencilZFailOperation(STENCIL_KEEP)
+			fl_render_ClearStencil()
+			fl_render_SetStencilCompareFunction(STENCIL_NEVER)
+			fl_render_SetStencilEnable(true)
+			fl_render_SetStencilFailOperation(STENCIL_REPLACE)
+			fl_render_SetStencilPassOperation(STENCIL_KEEP)
+			fl_render_SetStencilReferenceValue(1)
+			fl_render_SetStencilTestMask(0xFF)
+			fl_render_SetStencilWriteMask(0xFF)
+			fl_render_SetStencilZFailOperation(STENCIL_KEEP)
 			
 			for master_index, header in pairs(game_entry_container.GameEntryHeaders) do
 				local x, y = self:ScreenToLocal(header:LocalToScreen())
@@ -832,23 +856,23 @@ open_browser = function(icon, window)
 				fl_surface_DrawRect(x, y, header:GetSize())
 			end
 			
-			render.SetStencilFailOperation(STENCIL_INCR)
-			render.SetStencilPassOperation(STENCIL_KEEP)
+			fl_render_SetStencilFailOperation(STENCIL_INCR)
+			fl_render_SetStencilPassOperation(STENCIL_KEEP)
 			
 			fl_surface_SetDrawColor(255, 255, 255, 32)
 			fl_surface_DrawRect(game_entry_container:GetBounds())
 			
-			render.SetStencilReferenceValue(2)
-			render.SetStencilCompareFunction(STENCIL_EQUAL)
-			render.SetStencilFailOperation(STENCIL_KEEP)
-			render.SetStencilPassOperation(STENCIL_REPLACE)
+			fl_render_SetStencilReferenceValue(2)
+			fl_render_SetStencilCompareFunction(STENCIL_EQUAL)
+			fl_render_SetStencilFailOperation(STENCIL_KEEP)
+			fl_render_SetStencilPassOperation(STENCIL_REPLACE)
 			
 			draw_cogs(browser_cogs)
 			draw_cogs(browser_cogs_2)
 			
 			for master_index, header in pairs(game_entry_container.GameEntryHeaders) do header:PaintManual() end
 			
-			render.SetStencilEnable(false)
+			fl_render_SetStencilEnable(false)
 		end
 		
 		function panel_cogs:PerformLayout(width, height)
@@ -1026,13 +1050,20 @@ end
 calc_vars()
 
 --concommand
+--[[ debug
 concommand.Add("wire_game_core_debug", function()
 	print("game_settings")
 	PrintTable(game_settings, 1)
 	
 	print("game_collidables")
 	PrintTable(game_collidables, 1)
-end, nil, "Debug info for game core.")
+end, nil, "Debug info for game core.") --]]
+
+concommand.Add("wire_game_core_leave", function()
+	--localize the help
+	net.Start("wire_game_core_leave")
+	net.SendToServer()
+end, nil, "Forcefully leave the game.")
 
 --cvars
 cvars.AddChangeCallback("wire_game_core_request_duration", function() pop_up_duration = wire_game_core_request_duration:GetFloat() end)
@@ -1090,8 +1121,7 @@ hook.Add("ContextMenuCreated", "wire_game_core", function(panel)
 		end
 	end
 	
-	----label showing the game title
-	do
+	do --label showing the game title
 		local label_title = vgui.Create("DLabel", game_bar)
 		
 		label_title:Dock(TOP)
@@ -1103,8 +1133,7 @@ hook.Add("ContextMenuCreated", "wire_game_core", function(panel)
 		game_bar.label_title = label_title
 	end
 	
-	----label showing the host
-	do
+	do --label showing the host
 		local label_master = vgui.Create("DLabel", game_bar)
 		
 		label_master:Dock(TOP)
@@ -1116,8 +1145,7 @@ hook.Add("ContextMenuCreated", "wire_game_core", function(panel)
 		game_bar.label_master = label_master
 	end
 	
-	----rich text for the owner to give updates
-	do
+	do --rich text for the owner to give updates
 		local rich_text = vgui.Create("RichText", game_bar)
 		local rich_text_track = rich_text:Find("ScrollBar")
 		
@@ -1161,8 +1189,7 @@ hook.Add("ContextMenuCreated", "wire_game_core", function(panel)
 			fl_surface_DrawRect(0, 0, w, h)
 		end
 	
-	----button to leave the game
-	do
+	do --button to leave the game
 		local button_leave = vgui.Create("DButton", game_bar)
 		
 		button_leave:SetText("#wire_game_core.bar.leave")
@@ -1177,8 +1204,7 @@ hook.Add("ContextMenuCreated", "wire_game_core", function(panel)
 		table.insert(scroll_bar_buttons, button_leave)
 	end
 	
-	----button to hide players
-	do
+	do --button to hide players
 		local button_hide = vgui.Create("DButton", game_bar)
 		
 		button_hide:SetText("#wire_game_core.settings.visibility." .. player_visibility)
@@ -1199,8 +1225,8 @@ hook.Add("ContextMenuCreated", "wire_game_core", function(panel)
 		table.insert(scroll_bar_buttons, button_hide)
 	end
 	
-	----button to do something
-	do
+	--[[ just debug
+	do --button to do something
 		local button_undecided = vgui.Create("DButton", game_bar)
 		
 		button_undecided:SetText("Undecided")
@@ -1214,7 +1240,7 @@ hook.Add("ContextMenuCreated", "wire_game_core", function(panel)
 		end
 		
 		table.insert(scroll_bar_buttons, button_undecided)
-	end
+	end --]]
 	
 	--add buttons to the sidebar
 	for index, button in ipairs(scroll_bar_buttons) do
@@ -1321,7 +1347,7 @@ end)
 
 hook.Add("OnContextMenuOpen", "wire_game_core", function()
 	context_menu_open = true
-	--TODO: figure out what the heck is happenning with game bar's animations
+	
 	if game_master_index then
 		game_bar:SetActive(true)
 		game_bar:SetParent(context_menu)
@@ -1334,9 +1360,6 @@ end)
 hook.Add("OnScreenSizeChanged", "wire_game_core", calc_vars)
 hook.Add("PlayerNoClip", "wire_game_core", function(ply, desire) if game_masters[ply:EntIndex()] and desire then return false end end)
 hook.Add("PopulateToolMenu", "wire_game_core", function() spawnmenu.AddToolMenuOption("Utilities", "User", "WireGameCore", "E2 Game Core", "", "", generate_settings_form) end)
-
---not yet, I still want to test
---hook.Add("SpawnMenuOpen", "wire_game_core", function() if game_master_index then return false end end)
 
 hook.Add("ShouldCollide", "wire_game_core", function(ent_1, ent_2)
 	local ply = ent_1:IsPlayer() and game_masters[ent_1:EntIndex()] and ent_1 or ent_2:IsPlayer() and game_masters[ent_2:EntIndex()] and ent_2 or false
@@ -1375,7 +1398,7 @@ net.Receive("wire_game_core_block_update", function()
 end)
 
 net.Receive("wire_game_core_collidables", function()
-	--todo: more networked tables like this
+	--we need more networked tables like this
 	--though, we need to make it so the collidables get wiped when a game goes inactive
 	repeat
 		local master_index = net.ReadUInt(8)
@@ -1399,8 +1422,8 @@ net.Receive("wire_game_core_join", function()
 	game_master = Entity(game_master_index)
 	local rich_text = game_bar.rich_text
 	
-	--reading when nothing is there scares me, so lets check
-	if net.ReadBool() then weapon_class = net.ReadString() end
+	--broken
+	--if net.ReadBool() then weapon_class = net.ReadString() end
 	
 	rich_text:SetText("")
 	
@@ -1456,15 +1479,13 @@ net.Receive("wire_game_core_masters", function()
 end)
 
 net.Receive("wire_game_core_message", function()
-	local message_table = net.ReadTable()
-	
-	if message_table then
+	if net.ReadBool() then
+		local message_table = net.ReadTable()
 		local new_line = net.ReadBool()
-		local notify = net.ReadBool()
 		
 		game_bar_message(new_line, message_table)
 		
-		if notify then
+		if net.ReadBool() then
 			game_bar:SetActive(true)
 			
 			timer.Create("wire_game_core_game_bar_close", math.Clamp(net.ReadFloat(), 1, 10), 1, function()
@@ -1475,7 +1496,9 @@ net.Receive("wire_game_core_message", function()
 			end)
 		end
 	else
+		rich_text_cleared = true
 		
+		game_bar.rich_text:SetText("")
 	end
 end)
 
