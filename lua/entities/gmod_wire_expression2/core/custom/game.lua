@@ -222,8 +222,8 @@ local weapons_passing = false
 	--other people x them, name space shenans should help if someone wants to make compatibility
 	--this is done automatically by the detour macro functions
 	GAMEMODE.PlayerDeathThinkX_GameCore = fl_GAMEMODE_PlayerDeathThink
-	ply_meta.Give = fl_Player_Give
-	ply_meta.GiveAmmo = fl_Player_GiveAmmo
+	ply_meta.GiveX_GameCore = fl_Player_Give
+	ply_meta.GiveAmmoX_GameCore = fl_Player_GiveAmmo
 	ply_meta.SetViewEntityX_GameCore = fl_Player_SetViewEntity
 
 --local pre functions
@@ -914,6 +914,8 @@ end
 function ply_meta:Give(class, no_ammo, ...)
 	--we need to make this give ammo in the clip if no_ammo is false/nil
 	local ply_index = self:EntIndex()
+	
+	print("give weapon", self, ply_index, class, no_ammo, ...)
 	
 	if not weapons_passing and game_masters[ply_index] then
 		if self:HasWeapon(class) then return NULL end
@@ -3537,15 +3539,45 @@ do
 	end
 	
 	do --urm, for autobox mainly
-		if TIIP and TIIP.URM and TIIP.URM.PlayerCanPickupWeapon then
-			fl_TIIP_URM_PlayerCanPickupWeapon = TIIP.URM.PlayerCanPickupWeapon
-			
-			hook.Add("PlayerCanPickupWeapon", "TIIPURMPlayerCanPickupWeapon", function(ply, ...)
-				local master_index = game_masters[ply:EntIndex()]
+		hook.Add("InitPostEntity", "wire_game_core_urm_abx", function()
+			if TIIP and TIIP.URM and TIIP.URM.PlayerCanPickupWeapon then
+				local authorized_overrides = {
+					--authorized types
+					pickup = true,
+					swep = true,
+				}
 				
-				if master_index then return fl_TIIP_URM_PlayerCanPickupWeapon(Entity(master_index), ...)
-				else return fl_TIIP_URM_PlayerCanPickupWeapon(ply, ...) end
-			end, -1)
-		end
+				----cached functions
+					--we gon need more
+					local fl_TIIP_URM_CheckRestrictions = TIIP.URM.CheckRestrictionsX_GameCore or TIIP.URM.CheckRestrictions
+				
+				----globals
+					--we gon need more
+					TIIP.URM.CheckRestrictionsX_GameCore = fl_TIIP_URM_CheckRestrictions
+				
+				function TIIP.URM.CheckRestrictions(ply, str, type, ...)
+					print("\nchecking restrictions", ply, str, type, ply:EntIndex(), game_masters[ply:EntIndex()])
+					
+					if authorized_overrides[type] then
+						local master_index = game_masters[ply:EntIndex()]
+						
+						if master_index then
+							local master = Entity(master_index)
+							local perms = fl_TIIP_URM_CheckRestrictions(master, str, type, ...)
+							
+							print("we got a delegate! master_index: " .. master_index .. "\nthey were in a game", master, perms)
+							
+							return perms
+						else print("we got a delegate") end
+					end
+					
+					return fl_TIIP_URM_CheckRestrictions(ply, str, type, ...)
+				end
+			end
+			
+			hook.Remove("InitPostEntity", "wire_game_core_urm_abx")
+		end)
+		
+		hook.GetTable().InitPostEntity.wire_game_core_urm_abx()
 	end
 end

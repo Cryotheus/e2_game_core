@@ -1468,13 +1468,15 @@ net.Receive("wire_game_core_masters", function()
 	for ply_index, master_index in pairs(game_masters) do
 		local ply = Entity(ply_index)
 		
-		if master_index == 0 then
-			game_masters[ply_index] = nil
+		if IsValid(ply) then
+			if master_index == 0 then
+				game_masters[ply_index] = nil
+				
+				ply:SetCustomCollisionCheck(false)
+			else ply:SetCustomCollisionCheck(true) end
 			
-			ply:SetCustomCollisionCheck(false)
-		else ply:SetCustomCollisionCheck(true) end
-		
-		ply:CollisionRulesChanged()
+			ply:CollisionRulesChanged()
+		end
 	end
 end)
 
