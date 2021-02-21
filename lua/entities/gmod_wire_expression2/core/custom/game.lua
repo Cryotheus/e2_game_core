@@ -3535,8 +3535,8 @@ do
 			end)
 		else detour_spawn() end
 	end
-	
-	do --autobox compat
+
+	if ply_meta.AAT_CanUse then --autobox compat
 		local authorized_overrides = {weapon = true}
 		local fl_Player_AAT_CanUse = ply_meta.AAT_CanUseX_GameCore or ply_meta.AAT_CanUse
 		ply_meta.AAT_CanUseX_GameCore = fl_Player_AAT_CanUse
