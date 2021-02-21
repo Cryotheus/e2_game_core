@@ -1364,6 +1364,13 @@ hook.Add("OnContextMenuOpen", "wire_game_core", function()
 	end
 end)
 
+hook.Add("OnEntityCreated", "wire_game_core", function(entity)
+	if entity:IsPlayer() then
+		entity:SetCustomCollisionCheck(true)
+		entity:CollisionRulesChanged()
+	end
+end)
+
 hook.Add("OnScreenSizeChanged", "wire_game_core", calc_vars)
 hook.Add("PlayerNoClip", "wire_game_core", function(ply, desire) if game_masters[ply:EntIndex()] and desire then return false end end)
 hook.Add("PopulateToolMenu", "wire_game_core", function() spawnmenu.AddToolMenuOption("Utilities", "User", "WireGameCore", "E2 Game Core", "", "", generate_settings_form) end)
@@ -1467,15 +1474,9 @@ net.Receive("wire_game_core_masters", function()
 	for ply_index, master_index in pairs(game_masters) do
 		local ply = Entity(ply_index)
 		
-		if IsValid(ply) then
-			if master_index == 0 then
-				game_masters[ply_index] = nil
-				
-				ply:SetCustomCollisionCheck(false)
-			else ply:SetCustomCollisionCheck(true) end
-			
-			ply:CollisionRulesChanged()
-		end
+		game_masters[ply_index] = nil
+		
+		if IsValid(ply) then ply:CollisionRulesChanged() end
 	end
 end)
 
