@@ -1,7 +1,7 @@
 {
 	"author"	:	"Cryotheum",
 	"title"		:	"[E2] Game Core",
-	"type"		:	"ServerContent",
+	"type"		:	"tool",
 	"tags"		:	[ "fun" ],
 	"ignore"	:
 	[
@@ -13,7 +13,7 @@
 		".git*",
 		"license",
 		"readme.md",
-		".sublime-project",
-		".sublime-workspace"
+		"*.sublime-project",
+		"*.sublime-workspace"
 	]
 }

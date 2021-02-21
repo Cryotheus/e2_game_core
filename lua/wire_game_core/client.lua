@@ -792,7 +792,7 @@ open_browser = function(icon, window)
 		button_icon:SetSize(browser_icon_size, browser_icon_size)
 		button_icon:SetText("")
 		
-		function button_icon:DoClick() gui.OpenURL("https://wiki.facepunch.com/gmod/") end
+		function button_icon:DoClick() gui.OpenURL("https://steamcommunity.com/sharedfiles/filedetails/?id=2402728063") end
 		
 		function button_icon:Paint(w, h)
 			fl_surface_SetDrawColor(color_white)
