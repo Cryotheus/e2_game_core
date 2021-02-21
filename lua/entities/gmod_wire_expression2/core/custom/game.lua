@@ -568,7 +568,10 @@ local function game_add(ply, master_index)
 		local count = table.Count(game_settings[master_index].plys)
 		local master = Entity(master_index)
 		
-		if master:AAT_GetBadgeProgress("game_core") < count then master:AAT_SetBadgeProgress("game_core", count) end
+		if master:AAT_GetBadgeProgress("game_core") < count then
+			master:AAT_SetBadgeProgress("game_core", count)
+			autobox.badge:ShowNotice(ply, "game_core")
+		end
 	end
 end
 
@@ -783,7 +786,15 @@ end
 
 local function normalized_angle(pitch, yaw, roll)
 	--returns a normalized angle if all components are numbers, otherwise it returns false
-	return ian(pitch) and ian(yaw) and ian(roll) and Angle(pitch, yaw, roll):Normalize() or false
+	local angle = false
+	
+	if ian(pitch) and ian(yaw) and ian(roll) then
+		angle = Angle(pitch, yaw, roll)
+		
+		angle:Normalize()
+	end
+	
+	return angle
 end
 
 local function owned_by_master(context, entity)
@@ -2778,6 +2789,43 @@ do --player functions
 	
 	do --weapons, ammo, clip
 		do --ammo
+			__e2setcost(12)
+			e2function number gamePlayerGiveAmmo(string ammo_type, amount)
+				local is_participating = game_evaluator_player_only(self, this)
+				
+				if is_constructor then
+					game_function_players(master_index, function(ply)
+						local weapon = fl_Player_GiveAmmo(ply, amount, ammo_type, true)
+						
+						--garunteed to give an entity, null or not, no need to use the global as the method sohuld work fine
+						if weapon:IsValid() then table.insert(return_array, weapon) end
+					end)
+					
+					return 1
+				end
+				
+				return 0
+			end
+			
+			e2function number gamePlayerGiveAmmo(string ammo_type, amount, show_pop_up)
+				local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+				
+				if is_constructor then
+					show_pop_up = show_pop_up == 0
+					
+					game_function_players(master_index, function(ply)
+						local weapon = fl_Player_GiveAmmo(ply, amount, ammo_type, show_pop_up)
+						
+						--garunteed to give an entity, null or not, no need to use the global as the method sohuld work fine
+						if weapon:IsValid() then table.insert(return_array, weapon) end
+					end)
+					
+					return 1
+				end
+				
+				return 0
+			end
+			
 			__e2setcost(4)
 			e2function number entity:gamePlayerGiveAmmo(string ammo_type, amount)
 				local is_participating = game_evaluator_player_only(self, this)
@@ -2822,6 +2870,22 @@ do --player functions
 				return 0
 			end
 			
+			e2function number gamePlayerSetClip2(string weapon_class, amount)
+				local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+				
+				if is_constructor then
+					game_function_players(master_index, function(ply)
+						local weapon = ply:GetWeapon(weapon_class)
+						
+						if IsValid(weapon) then weapon:SetClip2(amount) end
+					end)
+					
+					return 1
+				end
+				
+				return 0
+			end
+			
 			__e2setcost(4)
 			e2function number entity:gamePlayerSetClip1(amount)
 				if IsValid(this) and this:IsWeapon() then
@@ -2841,40 +2905,6 @@ do --player functions
 				return 0
 			end
 			
-			e2function number entity:gamePlayerSetClip1(string weapon_class, amount)
-				local is_participating = game_evaluator_player_only(self, this)
-				
-				if is_participating then
-					local weapon = this:GetWeapon(weapon_class)
-					
-					if IsValid(weapon) then
-						weapon:SetClip1(amount)
-						
-						return 1
-					end
-				end
-				
-				return 0
-			end
-			
-			__e2setcost(10)
-			e2function number gamePlayerSetClip2(string weapon_class, amount)
-				local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-				
-				if is_constructor then
-					game_function_players(master_index, function(ply)
-						local weapon = ply:GetWeapon(weapon_class)
-						
-						if IsValid(weapon) then weapon:SetClip2(amount) end
-					end)
-					
-					return 1
-				end
-				
-				return 0
-			end
-			
-			__e2setcost(4)
 			e2function number entity:gamePlayerSetClip2(amount)
 				if IsValid(this) and this:IsWeapon() then
 					owner = this:GetOwner()
@@ -2887,6 +2917,22 @@ do --player functions
 							
 							return 1
 						end
+					end
+				end
+				
+				return 0
+			end
+			
+			e2function number entity:gamePlayerSetClip1(string weapon_class, amount)
+				local is_participating = game_evaluator_player_only(self, this)
+				
+				if is_participating then
+					local weapon = this:GetWeapon(weapon_class)
+					
+					if IsValid(weapon) then
+						weapon:SetClip1(amount)
+						
+						return 1
 					end
 				end
 				

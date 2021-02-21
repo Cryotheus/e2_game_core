@@ -1,0 +1,234 @@
+@name One In The Crossbow
+@persist [Chip O]:entity
+@persist Active MaxFrags MaxRange RequiredPlayers RespawnDistance RespawnHeight RespawnRange StartDelay Starting
+@trigger none
+@model models/props_combine/breenglobe.mdl
+
+if (first())
+{
+    #how many kills to win
+    MaxFrags = 25
+    
+    #how far can the player go from the center?
+    MaxRange = 2048
+    
+    #how many players to start a match
+    RequiredPlayers = 2
+    
+    #how far to spawn players from the e2
+    RespawnDistance = 512
+    
+    #how high up to go when searching for a respawn location
+    RespawnHeight = 1024
+    
+    #how much further as a randomized distance to spawn them from the e2
+    RespawnRange = 1024
+    
+    #how long to wait before starting (to let more players join fairly)
+    StartDelay = 10
+    
+    
+    Chip = entity()
+    O = owner()
+    MaxRange = max(MaxRange, RespawnDistance + RespawnRange + 36)
+    
+    runOnGameDeath(1)
+    runOnGameJoin(1)
+    runOnGameLeave(1)
+    runOnGameRespawn(1)
+    runOnTick(1)
+    
+    function void activateGame()
+    {
+        Active = 1
+        
+        gamePlayerMessageClear()
+        gamePlayerMessage(3, "Game started.")
+        gamePlayerRespawn()
+        gamePlayerSetDeaths(0)
+        gamePlayerSetFrags(0)
+        holoVisible(1, players(), 0)
+        holoVisible(1, gamePlayers(), 1)
+    }
+    
+    function void deactivateGame()
+    {
+        Active = 0
+        
+        gamePlayerSetDeaths(0)
+        gamePlayerSetFrags(0)
+        gamePlayerStripWeapon()
+        
+        gamePlayerGiveWeapon("weapon_bugbait", 1)
+        
+        holoVisible(1, players(), 0)
+    }
+    
+    function void entity:playerLoadout()
+    {
+        This:gamePlayerStripEverything()
+        
+        if (Active)
+        {
+            This:gamePlayerGiveWeapon("weapon_crowbar")
+            This:gamePlayerGiveWeapon("weapon_crossbow")
+            
+            This:gamePlayerGiveAmmo("XBowBolt", 1, 0)
+        }
+        else {This:gamePlayerGiveWeapon("weapon_bugbait")}
+    }
+    
+    #make sure there is no game open
+    gameClose()
+    
+    #then open one and set the settings
+    #keep in mind only one game can exist per player
+    #I did this because the code complexity and performance impact was getting quite high when multiple games could be opened
+    gameOpen()
+    gameEnableFallDamage(0)
+    gameEnableSuicide(1)
+    gameSetDefaultArmor(0)
+    gameSetDefaultHealth(20)
+    gameSetDefaultMaxHealth(20)
+    gameSetDefaultRunSpeed(300)
+    gameSetDefaultRespawnMode(_GAMERESPAWNMODE_INSTANT)
+    gameSetDescription("A remake of \"One in the Chamber\" using crossbows. Killing an enemy gives you an additional shot, first one to " + MaxFrags + " kills wins.")
+    gameSetJoinable(1)
+    gameSetTitle("One In The Crossbow")
+    
+    #the max range holo
+    holoCreate(1, Chip:toWorld(vec(0, 0, RespawnHeight)), vec(1), ang(), vec(255, 0, 0), "models/hunter/tubes/tube4x4x16.mdl")
+    holoAlpha(1, 32)
+    holoDisableShading(1, 1)
+    holoMaterial(1, "holograms/hologram")
+    holoParent(1, Chip)
+    holoScaleUnits(1, vec(MaxRange * 2, MaxRange * 2, RespawnHeight * 2))
+    holoVisible(1, players(), 0)
+}
+
+if (tickClk())
+{
+    if (Active)
+    {
+        local ChipPos = Chip:pos()
+        local ChipPos2 = ChipPos:setZ(0)
+        
+        foreach (Index, Player:entity = gamePlayers())
+        {
+            local Pos = Player:pos()
+            local Pos2 = Pos:setZ(0)
+            
+            if (Pos2:distance(ChipPos2) > MaxRange | Pos[3] > RespawnHeight)
+            {
+                local Frags = Player:frags()
+                
+                Player:gamePlayerRespawn()
+                Player:gamePlayerSetPos(ChipPos)
+                
+                if (Frags)
+                {
+                    Player:gamePlayerSetFrags(max(0, Frags - 1))
+                    Player:gamePlayerMessage(3, vec(255, 0, 0), "You lost a frag for going out of bounds.")
+                }
+            }
+        }
+    }
+    else
+    {
+        if (gamePlayerCount() >= RequiredPlayers)
+        {
+            if (!Starting)
+            {
+                Starting = 1
+                
+                gamePlayerMessage(3, vec(255, 255, 255), "Game starting in ", vec(255, 0, 0), toString(StartDelay), vec(255), " seconds.")
+                interval(StartDelay * 1000)
+            }
+        }
+        else
+        {
+            if (Starting)
+            {
+                Starting = 0
+                
+                stoptimer("interval")
+            }
+        }
+    }
+}
+elseif (gameDeathClk())
+{
+    local Attacker = gameDeathAttacker()
+    local Victim = gameDeathClk()
+    local Weapon = Attacker:weapon("weapon_crossbow")
+    
+    Weapon:gamePlayerSetClip1(Weapon:clip1() + 1)
+    
+    if (Active)
+    {
+        if (Attacker:frags() >= MaxFrags)
+        {
+            deactivateGame()
+            gamePlayerMessage(3, vec(255, 0, 0), Attacker:name(), vec(255, 255, 255), " won the game.")
+        }
+        else {
+            Attacker:gamePlayerMessage(3, vec(255, 255, 255), "You killed ", vec(255, 0, 0), Victim:name(), vec(128), " (" + Attacker:frags() + "/" + MaxFrags + ")")
+            Victim:gamePlayerMessage(3, vec(255, 0, 0), Attacker:name(), vec(255, 255, 255), " killed you.")
+        }
+    }
+}
+elseif (gameJoinClk())
+{
+    local Player = gameJoinClk()
+    
+    if (Active)
+    {
+        gamePlayerMessage(3, vec(255, 0, 0), Player:name(), vec(255), " joined.")
+        Player:gamePlayerRespawn()
+    }
+    else
+    {
+        gamePlayerMessage(3, vec(255, 0, 0), Player:name(), vec(255), " joined. ", vec(128), " (" + gamePlayerCount() + "/" + RequiredPlayers + ")")
+        Player:playerLoadout()
+    }
+}
+elseif (gameLeaveClk())
+{
+    local Player = gameLeavePlayer()
+    
+    if (Active)
+    {
+        if (RequiredPlayers > gamePlayerCount())
+        {
+            gamePlayerMessage(3, vec(255, 0, 0), Player:name(), vec(255), " left, not enough players to continue game.")
+            deactivateGame()
+        }
+        else {gamePlayerMessage(3, vec(255, 0, 0), Player:name(), vec(255), " left.")}
+    }
+    else {gamePlayerMessage(3, vec(255, 0, 0), Player:name(), vec(255), " left. ", vec(128), " (" + gamePlayerCount() + "/" + RequiredPlayers + ")")}
+}
+elseif (gameRespawnClk())
+{
+    local Player = gameRespawnClk()
+    
+    rangerFilter(players())
+    rangerPersist(1)
+    
+    local Angle = ang(0, random(0, 360), 0)
+    local UpRanger = rangerOffsetHull(RespawnHeight, Chip:toWorld(vec(0, 0, 20)), vec(0, 0, 1), vec(-20, -20, 0), vec(20, 20, 20))
+    
+    rangerPersist(0)
+    
+    local OutRanger = rangerOffsetHull(sqrt(random(RespawnRange) ^ 2) + RespawnDistance, UpRanger:pos(), Angle:forward(), vec(-18, -18, 0), vec(18, 18, 72))
+    local DownRanger = rangerOffsetHull(65536, OutRanger:pos(), vec(0, 0, -1), vec(-18, -18, 0), vec(18, 18, 72))
+    
+    Player:gamePlayerSetAng(Angle + ang(0, 180, 0))
+    Player:gamePlayerSetPos(DownRanger:pos())
+    Player:playerLoadout()
+}
+elseif (clkName())
+{
+    Starting = 0
+    
+    activateGame()
+}
