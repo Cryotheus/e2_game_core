@@ -118,7 +118,6 @@ local tags = include("wire_game_core/includes/tags.lua") --y					k: sequential i
 	--function for pushing the player when they press use https://steamcommunity.com/sharedfiles/filedetails/?id=293535327
 	local pac_present = pace and true or false
 	local push_mod_hook = PushModHook_GameCore or hooks.KeyPress and hooks.KeyPress["ussy ussy ur a pussy"] or nil
-	local ulib_teams = ULXUTeamSpawnAuthHook_GameCore
 
 --constants
 local game_constants = { --in e2, these are all prefixed with _GAME, meaning REQUEST_ACCEPT becomes _GAMEREQUEST_ACCEPT
@@ -162,7 +161,7 @@ local game_default_settings = {
 		ladder_speed = 200,
 		max_armor = 100,
 		max_health = 100,
-		push = push_mod_hook and true or false,
+		push = push_mod_hook and true or nil,
 		respawn_delay = 5,
 		respawn_mode = game_constants.RESPAWNMODE_DELAYED,
 		run_speed = 400,
@@ -3595,7 +3594,7 @@ do
 		end
 		
 		--detour the existing hook, to determine if the player should push the target
-		--I could just do an override, but I found people modify the original push mod, like one that had convars for adjustment or another that properly calculated the view punch
+		--people tend to modify this mod, so use the original hook instead of custom code
 		hook.Add("KeyPress", "ussy ussy ur a pussy", function(ply, key)
 			if key == IN_USE then
 				local eye_trace = ply:GetEyeTrace()
@@ -3617,7 +3616,9 @@ do
 		end)
 	end
 	
-	do --ulx and its dumb enhanced respawn
+	do --ulx's enhanced respawn
+		local ulib_teams = ULXUTeamSpawnAuthHook_GameCore
+		
 		local function detour_spawn()
 			hook.Add("PlayerSpawn", "UTeamSpawnAuth", function(ply)
 				--prevent the stupid spawn event if they are in a game
@@ -3632,20 +3633,16 @@ do
 				if not ulib_teams then
 					ulib_teams = hooks.PlayerSpawn.UTeamSpawnAuth
 					ULXUTeamSpawnAuthHook_GameCore = ulib_teams
-					
-					if not ulib_teams then goto done end
 				end
 				
-				detour_spawn()
-				
-				::done::
+				if ulib_teams then detour_spawn() end
 				
 				hook.Remove("InitPostEntity", "wire_game_core_ulx")
 			end)
 		else detour_spawn() end
 	end
 
-	if ply_meta.AAT_CanUse then --autobox compat
+	if ply_meta.AAT_CanUse then --autobox compatibility
 		local authorized_overrides = {weapon = true}
 		local fl_Player_AAT_CanUse = ply_meta.AAT_CanUseX_GameCore or ply_meta.AAT_CanUse
 		ply_meta.AAT_CanUseX_GameCore = fl_Player_AAT_CanUse
@@ -3658,6 +3655,27 @@ do
 			end
 			
 			return fl_Player_AAT_CanUse(self, p_type, perm)
+		end
+	end
+	
+	if TIIP and TIIP.URM and TIIP.URM.PlayerCanPickupWeapon then --urm compatibility
+		local authorized_overrides = {
+			--authorized types
+			pickup = true,
+			swep = true,
+		}
+		
+		local fl_TIIP_URM_CheckRestrictions = TIIP.URM.CheckRestrictionsX_GameCore or TIIP.URM.CheckRestrictions
+		TIIP.URM.CheckRestrictionsX_GameCore = fl_TIIP_URM_CheckRestrictions
+		
+		function TIIP.URM.CheckRestrictions(ply, str, type, ...)
+			if authorized_overrides[type] then
+				local master_index = game_masters[ply:EntIndex()]
+				
+				if master_index then return fl_TIIP_URM_CheckRestrictions(Entity(master_index), str, type, ...) end
+			end
+			
+			return fl_TIIP_URM_CheckRestrictions(ply, str, type, ...)
 		end
 	end
 end
