@@ -12,8 +12,9 @@
 		"*.zip",
 		".git*",
 		"license",
-		"readme.md",
-		"wiki",
+		"LICENSE",
+		"*.md",
+		"wiki/*",
 		"*.sublime-project",
 		"*.sublime-workspace"
 	]
