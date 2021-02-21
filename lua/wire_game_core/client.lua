@@ -68,7 +68,6 @@ local open_request_gui
 	local game_bar_button_leave_y
 	local game_bar_button_undecided_y
 	local game_bar_cogs
-	local game_bar_desired = false
 	local game_bar_h
 	local game_bar_header = 36
 	local game_bar_open = false
@@ -1324,7 +1323,6 @@ hook.Add("InitPostEntity", "wire_game_core", function()
 		
 		--[[if alive ~= last_alive then
 			--show the bar while they are dead >:D
-			game_bar_desired = last_alive
 			last_alive = alive
 		end]] --needs testing
 		
@@ -1426,7 +1424,6 @@ net.Receive("wire_game_core_collidables", function()
 end)
 
 net.Receive("wire_game_core_join", function()
-	game_bar_desired = true
 	game_master_index = net.ReadUInt(8)
 	game_master = Entity(game_master_index)
 	local rich_text = game_bar.rich_text
@@ -1443,30 +1440,23 @@ net.Receive("wire_game_core_join", function()
 	else
 		game_bar:SetActive(true)
 		
-		timer.Create("wire_game_core_game_bar_close", 5 + 1 / 3, 1, function()
-			--short timers are okay by my standard
-			game_bar_desired = false
-			
-			game_bar:SetActive(false)
-		end)
+		timer.Create("wire_game_core_game_bar_close", 5 + 1 / 3, 1, function() game_bar:SetActive(false) end)
 	end
 end)
 
 net.Receive("wire_game_core_leave", function()
 	game_bar:SetActive(false)
 	
-	game_bar_desired = false
+	game_master = nil
+	game_master_index = nil
 	
+	--[[ broketh
 	if weapon_class then
 		local weapon = me:GetWeapon(weapon_class)
-		
-		--uggghhhhh predicted BULLSHit
-		timer.Simple(0, function() if IsValid(weapon) then input.SelectWeapon(weapon) end end)
-		
-		game_master = nil
-		game_master_index = nil
 		weapon_class = nil
-	end
+		
+		timer.Simple(0, function() if IsValid(weapon) then input.SelectWeapon(weapon) end end)
+	end --]]
 	
 	adjust_player_visibility(1)
 end)
@@ -1499,12 +1489,7 @@ net.Receive("wire_game_core_message", function()
 		if net.ReadBool() then
 			game_bar:SetActive(true)
 			
-			timer.Create("wire_game_core_game_bar_close", math.Clamp(net.ReadFloat(), 1, 10), 1, function()
-				--short timers are okay by my standard
-				game_bar_desired = false
-				
-				game_bar:SetActive(false)
-			end)
+			timer.Create("wire_game_core_game_bar_close", math.Clamp(net.ReadFloat(), 1, 10), 1, function() game_bar:SetActive(false) end)
 		end
 	else
 		rich_text_cleared = true

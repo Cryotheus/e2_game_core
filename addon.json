@@ -13,6 +13,7 @@
 		".git*",
 		"license",
 		"readme.md",
+		"wiki",
 		"*.sublime-project",
 		"*.sublime-workspace"
 	]
