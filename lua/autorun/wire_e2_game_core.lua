@@ -9,9 +9,10 @@ local config = {
 		server = 10,	--1 010
 		
 		includes = {
-			colors = 4,		--0 100
-			tags = 4,		--0 100
-			translate = 4	--0 100
+			colors = 4,			--0 100
+			projectiles = 4,	--0 100
+			tags = 4,			--0 100
+			translate = 4		--0 100
 		},
 		
 		panels = {

@@ -101,6 +101,8 @@ local open_request_gui
 	local scr_w
 
 --constant tables
+local game_owned_projectiles = include("wire_game_core/includes/projectiles.lua")
+
 local player_visibility_functions = {
 	nil,
 	
@@ -1036,8 +1038,15 @@ local function should_collide(ply, obstacle, ply_index, obstacle_index)
 		return false
 	end
 	
+	if game_owned_projectiles[obstacle:GetClass()] then
+		local owner = obstacle:GetOwner()
+		
+		if IsValid(owner) and game_masters[owner:EntIndex()] == master_index then return true end
+	end
+	
 	if game_collidables[master_index] and game_collidables[master_index][obstacle_index] or obstacle:IsWorld() then return true end
 	
+	--do we HAVE to return a value? was mitch lying?
 	return false
 end
 
@@ -1587,13 +1596,13 @@ net.Receive("wire_game_core_sync", function()
 	if game_master_index and game_settings[game_master_index] then update_game_bar() end
 end)
 
---[[ auto reload, will be removed in the future
+---[[ auto reload, will be removed in the future
 if WireGameCore then
 	--this stuff is also being used for autoreload, but is safe to run anyways
 	local hooks = hook.GetTable()
 	local world_panel = vgui.GetWorldPanel()
 	
-	local found_context_menu = world_panel:Find("ContextMenu")
+	local found_context_menu = g_ContextMenu or world_panel:Find("ContextMenu")
 	local found_game_bar = world_panel:Find("WireGameCoreGameBar")
 	local found_pop_up = world_panel:Find("WireGameCoreRequest")
 	

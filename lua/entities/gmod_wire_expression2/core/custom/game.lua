@@ -186,9 +186,11 @@ local game_message_type_ids = {
 	xv4 = true
 }
 
---game_respawns
+local game_owned_projectiles = include("wire_game_core/includes/projectiles.lua")
+
 local game_respawn_functions = {
 	function(ply) ply:Spawn() end, --RESPAWN_INSTANT
+	
 	function(ply) --RESPAWN_DELAYED
 		local ply_index = ply:EntIndex()
 		local respawn_time = game_respawns[ply_index] or 0
@@ -199,6 +201,7 @@ local game_respawn_functions = {
 			game_respawns[ply_index] = nil
 		end
 	end,
+	
 	function(ply) end, --RESPAWN_NEVER
 	function(ply) end --RESPAWN_SPECTATOR
 }
@@ -832,6 +835,12 @@ local function should_collide(ply, obstacle, ply_index, obstacle_index)
 		if game_masters[obstacle_index] == master_index then return game_settings[master_index].ply_collide end
 		
 		return false
+	end
+	
+	if game_owned_projectiles[obstacle:GetClass()] then
+		local owner = obstacle:GetOwner()
+		
+		if IsValid(owner) and game_masters[owner:EntIndex()] == master_index then return true end
 	end
 	
 	if game_collidables[master_index] and game_collidables[master_index][obstacle_index] or obstacle:IsWorld() then return true end
