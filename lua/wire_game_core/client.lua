@@ -1587,7 +1587,7 @@ net.Receive("wire_game_core_sync", function()
 	if game_master_index and game_settings[game_master_index] then update_game_bar() end
 end)
 
---auto reload, will be removed in the future
+--[[ auto reload, will be removed in the future
 if WireGameCore then
 	--this stuff is also being used for autoreload, but is safe to run anyways
 	local hooks = hook.GetTable()
@@ -1603,3 +1603,4 @@ if WireGameCore then
 	hooks.ContextMenuCreated.wire_game_core(found_context_menu) --my old method, but now we have to recreate it when working with desktop icons
 	hooks.InitPostEntity.wire_game_core()
 else WireGameCore = true end
+--]]

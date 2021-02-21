@@ -915,8 +915,6 @@ function ply_meta:Give(class, no_ammo, ...)
 	--we need to make this give ammo in the clip if no_ammo is false/nil
 	local ply_index = self:EntIndex()
 	
-	print("give weapon", self, ply_index, class, no_ammo, ...)
-	
 	if not weapons_passing and game_masters[ply_index] then
 		if self:HasWeapon(class) then return NULL end
 		
@@ -3538,46 +3536,19 @@ do
 		else detour_spawn() end
 	end
 	
-	do --urm, for autobox mainly
-		hook.Add("InitPostEntity", "wire_game_core_urm_abx", function()
-			if TIIP and TIIP.URM and TIIP.URM.PlayerCanPickupWeapon then
-				local authorized_overrides = {
-					--authorized types
-					pickup = true,
-					swep = true,
-				}
+	do --autobox compat
+		local authorized_overrides = {weapon = true}
+		local fl_Player_AAT_CanUse = ply_meta.AAT_CanUseX_GameCore or ply_meta.AAT_CanUse
+		ply_meta.AAT_CanUseX_GameCore = fl_Player_AAT_CanUse
+		
+		function ply_meta:AAT_CanUse(p_type, perm)
+			if authorized_overrides[p_type] then
+				local master_index = game_masters[self:EntIndex()]
 				
-				----cached functions
-					--we gon need more
-					local fl_TIIP_URM_CheckRestrictions = TIIP.URM.CheckRestrictionsX_GameCore or TIIP.URM.CheckRestrictions
-				
-				----globals
-					--we gon need more
-					TIIP.URM.CheckRestrictionsX_GameCore = fl_TIIP_URM_CheckRestrictions
-				
-				function TIIP.URM.CheckRestrictions(ply, str, type, ...)
-					print("\nchecking restrictions", ply, str, type, ply:EntIndex(), game_masters[ply:EntIndex()])
-					
-					if authorized_overrides[type] then
-						local master_index = game_masters[ply:EntIndex()]
-						
-						if master_index then
-							local master = Entity(master_index)
-							local perms = fl_TIIP_URM_CheckRestrictions(master, str, type, ...)
-							
-							print("we got a delegate! master_index: " .. master_index .. "\nthey were in a game", master, perms)
-							
-							return perms
-						else print("we got a delegate") end
-					end
-					
-					return fl_TIIP_URM_CheckRestrictions(ply, str, type, ...)
-				end
+				if master_index then return fl_Player_AAT_CanUse(Entity(master_index), p_type, perm) end
 			end
 			
-			hook.Remove("InitPostEntity", "wire_game_core_urm_abx")
-		end)
-		
-		hook.GetTable().InitPostEntity.wire_game_core_urm_abx()
+			return fl_Player_AAT_CanUse(self, p_type, perm)
+		end
 	end
 end
