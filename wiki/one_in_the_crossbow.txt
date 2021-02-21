@@ -1,4 +1,4 @@
-@name One In The Crossbow
+@name AGC One In The Crossbow
 @persist [Chip O]:entity
 @persist Active MaxFrags MaxRange RequiredPlayers RespawnDistance RespawnHeight RespawnRange StartDelay Starting
 @trigger none
@@ -95,6 +95,8 @@ if (first())
     gameSetDescription("A remake of \"One in the Chamber\" using crossbows. Killing an enemy gives you an additional shot, first one to " + MaxFrags + " kills wins.")
     gameSetJoinable(1)
     gameSetTitle("One In The Crossbow")
+    gameTagAdd(_GAMETAG_FAST)
+    gameTagAdd(_GAMETAG_FFA)
     
     #the max range holo
     holoCreate(1, Chip:toWorld(vec(0, 0, RespawnHeight)), vec(1), ang(), vec(255, 0, 0), "models/hunter/tubes/tube4x4x16.mdl")
