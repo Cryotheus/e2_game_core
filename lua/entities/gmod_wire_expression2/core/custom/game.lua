@@ -1826,7 +1826,7 @@ do --player defaults
 	end
 end
 
-do --game management
+do --player functions
 	do --camera
 		__e2setcost(6)
 		e2function number entity:gamePlayerSetCamera()
@@ -2361,7 +2361,7 @@ do --game management
 			return 0
 		end
 
-		e2function number entity:gamePlayerSetJumpPower(power)
+		e2function number gamePlayerSetJumpPower(power)
 			local is_participating = game_evaluator_player_only(self, this)
 			
 			if is_participating then
@@ -2497,6 +2497,106 @@ do --game management
 			
 			if is_participating then
 				fl_Player_SetSlowWalkSpeed(this, fl_math_Clamp(speed, 0, game_max_speed))
+				
+				return 1
+			end
+			
+			return 0
+		end
+	end
+	
+	do --scoreboard
+		__e2setcost(15)
+		e2function number gamePlayerAddDeaths(deaths)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				game_function_players(master_index, function(ply) ply:AddDeaths(deaths) end)
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
+		e2function number gamePlayerAddFrags(frags)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				game_function_players(master_index, function(ply) ply:AddFrags(frags) end)
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
+		e2function number gamePlayerSetDeaths(deaths)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				game_function_players(master_index, function(ply) ply:SetDeaths(deaths) end)
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
+		e2function number gamePlayerSetFrags(frags)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				game_function_players(master_index, function(ply) ply:SetFrags(frags) end)
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
+		__e2setcost(6)
+		e2function number entity:gamePlayerAddDeaths(deaths)
+			local is_participating = game_evaluator_player_only(self, this)
+			
+			if is_participating then
+				this:AddDeaths(deaths)
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
+		e2function number entity:gamePlayerAddFrags(frags)
+			local is_participating = game_evaluator_player_only(self, this)
+			
+			if is_participating then
+				this:AddFrags(frags)
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
+		e2function number entity:gamePlayerSetDeaths(deaths)
+			local is_participating = game_evaluator_player_only(self, this)
+			
+			if is_participating then
+				this:SetDeaths(deaths)
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
+		e2function number entity:gamePlayerSetFrags(frags)
+			local is_participating = game_evaluator_player_only(self, this)
+			
+			if is_participating then
+				this:SetFrags(frags)
 				
 				return 1
 			end
