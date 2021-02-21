@@ -244,8 +244,6 @@ function PANEL:Init()
 				
 				if animate_expansion and height > canvas_height and self.Active then self.Percent = self.Percent * canvas_height / height end
 				
-				print("change canvas height from " .. canvas_height .. " to " .. height)
-				
 				self.CanvasHeight = height
 			end
 			

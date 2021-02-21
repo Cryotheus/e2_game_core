@@ -64,4 +64,5 @@ function PANEL:SetSettings(master_index, game_settings)
 	else self:AddEntry(master_index, game_settings) end
 end
 
+--post
 derma.DefineControl("WGCBrowserGameEntryContainer", "A panel for [E2] Game Core, holds game entries.", PANEL, "DScrollPanel")

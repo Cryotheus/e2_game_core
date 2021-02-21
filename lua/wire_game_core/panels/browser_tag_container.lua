@@ -43,8 +43,6 @@ function PANEL:Init()
 	self:SetTagSpacingY()
 end
 
---function PANEL:Paint(width, height) end
-
 function PANEL:PerformLayout(width, height)
 	local x = 0
 	local y = 0
