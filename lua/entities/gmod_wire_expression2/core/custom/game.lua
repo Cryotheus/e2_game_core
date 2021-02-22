@@ -2676,12 +2676,81 @@ do --player functions
 	end
 	
 	do --strip
+		__e2setcost(30)
+		e2function number gamePlayerAcclimate()
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			local settings_defaults = game_settings[master_index].defaults
+			
+			if is_constructor then
+				game_function_players(master_index, function(ply, ply_index) game_acclimate(ply, ply_index, settings_defaults) end)
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
 		__e2setcost(10)
 		e2function number gamePlayerStripAmmo()
 			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
 			
 			if is_constructor then
-				for ply_index in pairs(game_settings[master_index].plys) do fl_Player_StripAmmo(Entity(ply_index)) end
+				game_function_players(master_index, function(ply) fl_Player_StripAmmo(ply) end)
+				
+				return 1
+			end
+			
+			return 0
+		end
+
+		__e2setcost(25)
+		e2function number gamePlayerStripEverything()
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				game_function_players(master_index, function(ply)
+					fl_Player_StripAmmo(ply)
+					fl_Player_StripWeapons(ply)
+				end)
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
+		__e2setcost(15)
+		e2function number gamePlayerStripWeapon()
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				game_function_players(master_index, function(ply) fl_Player_StripWeapons(ply) end) 
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
+		__e2setcost(7)
+		e2function number gamePlayerStripWeapon(string weapon_class)
+			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
+			
+			if is_constructor then
+				game_function_players(master_index, function(ply) fl_Player_StripWeapons(ply) end)
+				
+				return 1
+			end
+			
+			return 0
+		end
+		
+		__e2setcost(12)
+		e2function number entity:gamePlayerAcclimate()
+			local is_participating, ply_index, chip_index, master_index = game_evaluator_player_only(self, this)
+			
+			if is_participating then
+				game_acclimate(this, ply_index, game_settings[master_index].defaults)
 				
 				return 1
 			end
@@ -2702,24 +2771,6 @@ do --player functions
 			return 0
 		end
 		
-		__e2setcost(25)
-		e2function number gamePlayerStripEverything()
-			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-			
-			if is_constructor then
-				for ply_index in pairs(game_settings[master_index].plys) do
-					local ply = Entity(ply_index)
-					
-					fl_Player_StripAmmo(ply)
-					fl_Player_StripWeapons(ply)
-				end
-				
-				return 1
-			end
-			
-			return 0
-		end
-		
 		__e2setcost(10)
 		e2function number entity:gamePlayerStripEverything()
 			local is_participating = game_evaluator_player_only(self, this)
@@ -2727,32 +2778,6 @@ do --player functions
 			if is_participating then
 				fl_Player_StripAmmo(this)
 				fl_Player_StripWeapons(this)
-				
-				return 1
-			end
-			
-			return 0
-		end
-		
-		__e2setcost(15)
-		e2function number gamePlayerStripWeapon()
-			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-			
-			if is_constructor then
-				for ply_index in pairs(game_settings[master_index].plys) do fl_Player_StripWeapons(Entity(ply_index)) end --use undetoured
-				
-				return 1
-			end
-			
-			return 0
-		end
-		
-		__e2setcost(7)
-		e2function number gamePlayerStripWeapon(string weapon_class)
-			local is_constructor, chip_index, master_index = game_evaluator_constructor_only(self)
-			
-			if is_constructor then
-				for ply_index in pairs(game_settings[master_index].plys) do fl_Player_StripWeapons(Entity(ply_index)) end  --use undetoured
 				
 				return 1
 			end
