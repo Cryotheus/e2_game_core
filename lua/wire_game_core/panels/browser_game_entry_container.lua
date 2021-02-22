@@ -61,7 +61,9 @@ function PANEL:SetSettings(master_index, game_settings)
 	local game_entry = self.GameEntries[master_index]
 	
 	if game_entry then game_entry:SetSettings(game_settings)
-	else self:AddEntry(master_index, game_settings) end
+	else game_entry = self:AddEntry(master_index, game_settings) end
+	
+	return game_entry
 end
 
 --post

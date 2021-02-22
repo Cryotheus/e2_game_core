@@ -440,7 +440,7 @@ function PANEL:SetHeaderHeight(height)
 end
 
 function PANEL:SetJoinable(joinable)
-	joinable = tobool(joinable) or false
+	if not isbool(joinable) then joinable = tobool(joinable) or false end
 	
 	if joinable then
 		local join_button = self.ButtonJoin

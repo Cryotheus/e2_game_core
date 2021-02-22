@@ -1060,6 +1060,9 @@ calc_vars()
 --concommand
 --[[ debug
 concommand.Add("wire_game_core_debug", function()
+	print("game_masters")
+	PrintTable(game_masters, 1)
+	
 	print("game_settings")
 	PrintTable(game_settings, 1)
 	
@@ -1382,7 +1385,7 @@ hook.Add("ShouldCollide", "wire_game_core", function(ent_1, ent_2)
 		local obstacle = ply == ent_1 and ent_2 or ent_1
 		
 		return should_collide(ply, obstacle, ply:EntIndex(), obstacle:EntIndex())
-	end
+	else print(ent_1, ent_2) end
 end)
 
 --net
@@ -1469,13 +1472,16 @@ net.Receive("wire_game_core_leave", function()
 end)
 
 net.Receive("wire_game_core_masters", function()
-	game_masters = table.Merge(game_masters, net.ReadTable())
+	local merge_table = net.ReadTable()
+	game_masters = table.Merge(game_masters, merge_table)
+	
+	print("got game_masters")
+	PrintTable(game_masters, 1)
 	
 	for ply_index, master_index in pairs(game_masters) do
 		local ply = Entity(ply_index)
 		
-		game_masters[ply_index] = nil
-		
+		if master_index == 0 then game_masters[ply_index] = nil end
 		if IsValid(ply) then ply:CollisionRulesChanged() end
 	end
 end)
