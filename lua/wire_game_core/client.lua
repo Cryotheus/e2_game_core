@@ -1475,9 +1475,6 @@ net.Receive("wire_game_core_masters", function()
 	local merge_table = net.ReadTable()
 	game_masters = table.Merge(game_masters, merge_table)
 	
-	print("got game_masters")
-	PrintTable(game_masters, 1)
-	
 	for ply_index, master_index in pairs(game_masters) do
 		local ply = Entity(ply_index)
 		
