@@ -1385,7 +1385,7 @@ hook.Add("ShouldCollide", "wire_game_core", function(ent_1, ent_2)
 		local obstacle = ply == ent_1 and ent_2 or ent_1
 		
 		return should_collide(ply, obstacle, ply:EntIndex(), obstacle:EntIndex())
-	else print(ent_1, ent_2) end
+	end
 end)
 
 --net
